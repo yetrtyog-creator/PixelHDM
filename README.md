@@ -98,7 +98,7 @@ scripts\activate.bat
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/PixelHDM.git
+git clone https://github.com/yetrtyog-creator/PixelHDM.git
 cd PixelHDM
 
 # Create virtual environment (Python 3.12 required)
@@ -252,7 +252,7 @@ src/
 @software{PixelHDM2026,
   title = {PixelHDM: Pixel Home-scale Diffusion Model},
   year = {2026},
-  url = {https://github.com/your-username/PixelHDM}
+  url = {https://github.com/yetrtyog-creator/PixelHDM}
 }
 ```
 
@@ -316,7 +316,7 @@ scripts\activate.bat
 
 ```bash
 # 克隆倉庫
-git clone https://github.com/your-username/PixelHDM.git
+git clone https://github.com/yetrtyog-creator/PixelHDM.git
 cd PixelHDM
 
 # 創建虛擬環境（需要 Python 3.12）
@@ -470,7 +470,7 @@ src/
 @software{PixelHDM2026,
   title = {PixelHDM: 像素家用規模擴散模型},
   year = {2026},
-  url = {https://github.com/your-username/PixelHDM}
+  url = {https://github.com/yetrtyog-creator/PixelHDM}
 }
 ```
 
