@@ -36,6 +36,7 @@ This project draws inspiration from the following research papers:
 | **REPA / iREPA** | [arXiv:2512.10794](https://arxiv.org/abs/2512.10794) | Representation Alignment for Generation |
 | **Flow Matching** | [arXiv:2210.02747](https://arxiv.org/abs/2210.02747) | Flow Matching for Generative Modeling |
 | **DINOv3** | [GitHub](https://github.com/facebookresearch/dinov2) | Self-supervised Vision Transformer (Meta 2025) |
+| **Gated Attention** |  [arXiv:2505.06708](https://arxiv.org/abs/2505.06708). | Gated Attention for Large Language Models: Non-linearity, Sparsity, and Attention-Sink-Free |
 
 ---
 
@@ -50,7 +51,7 @@ PixelHDM is a state-of-the-art text-to-image generation model combining:
 - **DINOv3 iREPA Loss**: Improved REPA with Conv2d projection and spatial normalization ([arXiv:2512.10794](https://arxiv.org/abs/2512.10794))
 - **Triple Loss System**: V-Loss + Frequency Loss + iREPA Loss for comprehensive optimization
 - **Flow Matching**: Modern ODE-based generative framework with V-Prediction
-- **Gated Attention: Based on Qwen3-next design.
+- **Gated Attention**: Based on Qwen3-next design.
 
 ### Key Features
 
@@ -268,7 +269,7 @@ PixelHDM 是一個結合以下技術的先進文本到圖像生成模型：
 - **DINOv3 iREPA 損失**：改進的 REPA，採用 Conv2d 投影和空間歸一化（[arXiv:2512.10794](https://arxiv.org/abs/2512.10794)）
 - **三重損失系統**：V-Loss + 頻率損失 + iREPA 損失，全面優化
 - **Flow Matching**：基於 ODE 的現代生成框架，使用 V-Prediction
-- **Gated Attention :基於Qwen3-next的設計。
+- **Gated Attention** :基於Qwen3-next的設計。
 
 ### 主要特性
 
