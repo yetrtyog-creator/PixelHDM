@@ -10,7 +10,7 @@
 ## 1. 系統概覽
 
 PixelHDM 是一個基於雙路徑 Transformer 的圖像生成模型，結合:
-- **PixelHDM**: 雙路徑架構 (Patch級 + Pixel級)
+- **PixelDiT**: 雙路徑架構 (Patch級 + Pixel級)
 - **DINOv3 REPA**: 特徵對齊損失
 - **Triple Loss**: V-Loss + Frequency Loss + REPA Loss
 
