@@ -19,7 +19,7 @@
 
 > **Disclaimer / 免責聲明**
 >
-> This is an **experimental atmosphere coding project** that has **NOT been fully tested**. It is provided solely for **experimental reference and modification purposes**. Use at your own risk.
+> This is an **experimental vibe coding project** that has **NOT been fully tested**. It is provided solely for **experimental reference and modification purposes**. Use at your own risk.
 >
 > 這是一個**實驗性氛圍編碼項目**，**尚未經過充分測試**。本項目僅供**實驗參照修改使用**，風險自負。
 
