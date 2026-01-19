@@ -202,17 +202,17 @@ class TestTokenAdaLNTimeConditioning:
 class TestPixelwiseAdaLNInitialization:
     """Test PixelwiseAdaLN initialization (2026-01-07 fixes)."""
 
-    def test_gamma_init_small_nonzero(self, pixelwise_adaln):
-        """Test gamma initialized to small nonzero value (0.1), not 0 or 1."""
+    def test_gamma_init_small_nonzero(self, pixelwise_adaln, minimal_config):
+        """Test gamma initialized to config.adaln_init_gain, not 0."""
         bias = pixelwise_adaln.param_gen[-1].bias
         pixel_dim = pixelwise_adaln.pixel_dim
         num_params = pixelwise_adaln.num_params
 
         bias_reshaped = bias.view(num_params, pixel_dim)
 
-        # gamma1 (index 0) should be 0.1
+        # gamma1 (index 0) should be config.adaln_init_gain
         gamma1 = bias_reshaped[0]
-        expected_gamma = 0.1
+        expected_gamma = minimal_config.adaln_init_gain
 
         assert torch.allclose(gamma1, torch.full_like(gamma1, expected_gamma)), \
             f"gamma1 mean: {gamma1.mean()}, expected: {expected_gamma}"
@@ -291,10 +291,10 @@ class TestPixelwiseAdaLNSignalPreservation:
             assert signal_retention > 0.10, \
                 f"Signal retention {signal_retention:.2%} too low (< 10%)"
 
-    def test_rms_norm_present(self, pixelwise_adaln):
-        """Test RMSNorm is present for signal preservation."""
-        assert hasattr(pixelwise_adaln, 'cond_norm'), \
-            "cond_norm (RMSNorm) should be present for signal preservation"
+    def test_cond_norm_removed(self, pixelwise_adaln):
+        """Test cond_norm is NOT present (2026-01-19 fix: it destroyed 99.7% signal)."""
+        assert not hasattr(pixelwise_adaln, 'cond_norm'), \
+            "cond_norm should be REMOVED - it was destroying 99.7% of text signal"
 
     def test_text_conditioning_difference(self, pixelwise_adaln):
         """Test different text conditions produce different outputs."""
