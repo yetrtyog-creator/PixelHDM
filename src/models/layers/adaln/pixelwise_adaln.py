@@ -108,15 +108,15 @@ class PixelwiseAdaLN(nn.Module):
         nn.init.xavier_uniform_(self.param_gen[-1].weight)
 
         # Small non-zero initialization (NOT full adaLN-Zero)
-        # gamma=0.1: small but non-zero modulation
+        # gamma=1e-4: small init for gradual modulation learning
         # alpha=1.0: full residual for gradient flow
         # beta=0.0: no shift
         with torch.no_grad():
             bias = self.param_gen[-1].bias.view(self.num_params, self.pixel_dim)
             bias.zero_()  # Start from zero
-            bias[0].fill_(self.init_gain)   # gamma1 = 0.1 (active modulation)
+            bias[0].fill_(self.init_gain)   # gamma1 = 1e-4
             bias[2].fill_(1.0)   # alpha1 = 1.0 (full residual)
-            bias[3].fill_(self.init_gain)   # gamma2 = 0.1
+            bias[3].fill_(self.init_gain)   # gamma2 = 1e-4
             bias[5].fill_(1.0)   # alpha2 = 1.0
 
     def forward(
