@@ -2,8 +2,8 @@
 
 > **PixelHDM**: Pixel Home-scale Diffusion Model (像素家用規模擴散模型)
 
-**版本**: 1.2.0
-**更新日期**: 2026-01-08
+**版本**: 1.3.0
+**更新日期**: 2026-01-19
 
 ---
 
@@ -456,6 +456,7 @@ output.images[0].save("output.png")
 
 | 版本 | 日期 | 變更 |
 |------|------|------|
+| 1.3.0 | 2026-01-19 | **CRITICAL**: 移除 PixelwiseAdaLN 的 cond_norm; text_max_length 改為 511 |
 | 1.2.0 | 2026-01-08 | 重命名 PixelDiT → PixelHDM |
 | 1.1.0 | 2025-12-31 | 新增工廠方法 (`create_*_from_config`)、OOM 恢復 (`safe_train_step`) |
 | 1.0.0 | 2025-12-30 | 初始版本 |
