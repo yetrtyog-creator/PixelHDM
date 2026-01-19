@@ -2,8 +2,8 @@
 
 > **PixelHDM**: Pixel Home-scale Diffusion Model
 
-**Version**: 1.1.0
-**Date**: 2026-01-08
+**Version**: 1.2.0
+**Date**: 2026-01-19
 
 ---
 
@@ -744,14 +744,16 @@ gamma2=1, beta2=0, alpha2=1
 
 **PixelwiseAdaLN**:
 ```
-gamma1=0.1, beta1=0, alpha1=1
-gamma2=0.1, beta2=0, alpha2=1
+gamma1=init_gain, beta1=0, alpha1=1
+gamma2=init_gain, beta2=0, alpha2=1
 ```
+預設 `init_gain` 由 `config.adaln_init_gain` 設定。
 
-**Why gamma=0.1 for PixelwiseAdaLN**:
-- gamma=0: Block becomes identity (useless)
-- gamma=1: Time signal diluted to 24%
-- gamma=0.1: 96% time signal retained, block active
+**重要 (2026-01-19)**: `cond_norm` (RMSNorm) 已從 PixelwiseAdaLN 中**移除**。
+它原本是為了「恢復信號強度」而添加，但實際上破壞了 99.7% 的文字條件信號。
+- 問題: `cond_expand` 將不同的 s_cond 投影到幾乎平行的向量 (cosine_sim=0.998)
+- RMSNorm 只保留方向 → 不同文字輸入在歸一化後變得相同
+- 信號保留率: 有 cond_norm=0.3%, 無 cond_norm=54%
 
 ### 8.3 _reinit_adaln() Necessity
 
@@ -856,9 +858,10 @@ def get_dino_features(image_hash):
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2.0 | 2026-01-19 | **CRITICAL**: 從 PixelwiseAdaLN 移除 cond_norm (它破壞了 99.7% 文字信號) |
 | 1.1.0 | 2026-01-08 | Added missing config params, QK norm, Flash Attention, optimizer, ZClip, CFG scheduling |
 | 1.0.0 | 2026-01-08 | Initial version |
 
 ---
 
-*Generated: 2026-01-08*
+*最後更新: 2026-01-19*
