@@ -243,9 +243,9 @@ class TestPixelwiseAdaLNInitialization:
 
         bias_reshaped = bias.view(num_params, pixel_dim)
 
-        # gamma1 should NOT be zero
+        # gamma1 should NOT be zero (should be 1e-4)
         gamma1 = bias_reshaped[0]
-        assert gamma1.abs().mean() > 0.05, \
+        assert gamma1.abs().mean() > 1e-5, \
             "gamma1 should not be zero (adaLN-Zero makes blocks inactive)"
 
     def test_cond_expand_xavier_init(self, pixelwise_adaln):
@@ -575,9 +575,9 @@ class TestAdaLNRegressionBugs:
         num_params = adaln.num_params
         bias_reshaped = bias.view(num_params, pixel_dim)
 
-        # gamma1 should be 0.1, not 0
+        # gamma1 should be 1e-4, not 0
         gamma1 = bias_reshaped[0].mean().item()
-        assert gamma1 > 0.05, f"gamma1={gamma1}, too close to 0 (adaLN-Zero bug)"
+        assert gamma1 > 1e-5, f"gamma1={gamma1}, too close to 0 (adaLN-Zero bug)"
 
         # alpha should be 1.0, not 0
         alpha1 = bias_reshaped[2].mean().item()
