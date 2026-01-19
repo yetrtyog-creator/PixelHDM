@@ -482,6 +482,8 @@ src/
 
 *Last Updated: 2026-01-20*
 
+</div>
+
 2026/1/20
 
 修復了歸一化造成的信號衰減與修復增益數值設定錯誤的問題。
@@ -489,4 +491,4 @@ Fixed signal attenuation caused by normalization and incorrect gain value settin
 在src/config/pixelhdm_config.py中才可以正確設定adaln_init_gain數值。
 The adaln_init_gain value can only be correctly configured in src/config/pixelhdm_config.py.
 
-</div>
+
