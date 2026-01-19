@@ -2,15 +2,15 @@
 
 > **PixelHDM**: Pixel Home-scale Diffusion Model (像素家用規模擴散模型)
 
-**版本**: 1.1.0
-**更新日期**: 2026-01-08
+**版本**: 1.2.0
+**更新日期**: 2026-01-19
 
 ---
 
 ## 1. 系統概覽
 
 PixelHDM 是一個基於雙路徑 Transformer 的圖像生成模型，結合:
-- **PixelDiT**: 雙路徑架構 (Patch級 + Pixel級)
+- **PixelHDM**: 雙路徑架構 (Patch級 + Pixel級)
 - **DINOv3 REPA**: 特徵對齊損失
 - **Triple Loss**: V-Loss + Frequency Loss + REPA Loss
 
@@ -98,7 +98,8 @@ inference/ ← 依賴 config, models, training
     ↓
 ┌─────────────────────────────────────────┐
 │ Pixel Transformer Blocks × M (4層)       │
-│ ├─ PixelwiseAdaLN (時間條件)             │
+│ ├─ PixelwiseAdaLN (時間+文字條件)        │
+│ │   ⚠️ 無 cond_norm (它會破壞文字信號)   │
 │ ├─ TokenCompaction (Compress-Attend-Expand) │
 │ └─ SwiGLU FFN                            │
 └─────────────────────────────────────────┘
@@ -158,6 +159,37 @@ Compress-Attend-Expand 流程，實現 p⁴ = 65,536× 注意力成本降低:
 
 合併: concat(text_rope, img_h_rope, img_w_rope)
 ```
+
+**關鍵配置** (2026-01-10 修復):
+- `text_max_length = 511` (非 512)
+- `mrope_text_max_len = 511` (非 512)
+- 原因: 圖像 token 的 axis0 使用 `text_len` 作為位置，若 text_len=512 會越界
+
+### 2.4 PixelwiseAdaLN 條件化機制
+
+PixelwiseAdaLN 將時間和文字條件融入 Pixel Transformer:
+
+```
+s_cond (B, L, 1024) ── 包含語義、時間、文字信息
+    │
+    ▼
+cond_expand: Linear(1024 → 4096), Xavier uniform
+    │
+    ▼
+reshape: (B, L, 4096) → (B, L, 256, 16)
+    │
+    ▼
+param_gen: SiLU + Linear(16 → 96) ── 生成 6 組 AdaLN 參數
+    │
+    ▼
+輸出: gamma1, beta1, alpha1, gamma2, beta2, alpha2 (各 16 維)
+```
+
+**⚠️ 關鍵設計 (2026-01-19)**:
+- **無 cond_norm**: 曾添加 RMSNorm 嘗試恢復信號，但它破壞了 99.7% 的文字條件
+- **問題**: cond_expand 將不同文字的 s_cond 投影到幾乎平行的向量 (cosine_sim=0.998)
+- **RMSNorm 只保留方向** → 歸一化後不同文字輸入變得相同
+- **信號保留**: 有 cond_norm=0.3%, 無 cond_norm=54%
 
 ---
 
@@ -318,9 +350,10 @@ guidance_scale: 7.5
 
 | 版本 | 日期 | 變更 |
 |------|------|------|
+| 1.2.0 | 2026-01-19 | **CRITICAL**: 移除 PixelwiseAdaLN 的 cond_norm (它破壞 99.7% 文字信號); MRoPE text_max_length 修復 |
 | 1.1.0 | 2026-01-08 | 重命名 PixelDiT → PixelHDM |
 | 1.0.0 | 2025-12-30 | 初始版本 |
 
 ---
 
-**注意**: 此文檔反映 2026-01-08 的代碼狀態
+**注意**: 此文檔反映 2026-01-19 的代碼狀態
