@@ -111,7 +111,7 @@ class PixelHDMConfig:
 
     # AdaLN
     adaln_num_params: int = 6
-    adaln_init_gain: float = 1.0  # Standard Xavier (RMSNorm handles variance)
+    adaln_init_gain: float = 0.0001  # 1e-4: small init for gradual modulation learning
 
     # Inference defaults
     default_num_steps: int = 50
