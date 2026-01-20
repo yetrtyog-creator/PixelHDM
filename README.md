@@ -494,4 +494,8 @@ Fixed signal attenuation caused by normalization and incorrect gain value settin
 
 The adaln_init_gain value can only be correctly configured in src/config/pixelhdm_config.py.
 
+修正modulate的計算公式錯誤。
+
+Correct the error in the modulate function formula.
+
 
