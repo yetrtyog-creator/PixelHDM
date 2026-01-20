@@ -137,7 +137,7 @@ $$t = t_{eps} + (1 - 2 \cdot t_{eps}) \cdot \sigma(p_{mean} + p_{std} \cdot u), 
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
 | `adaln_num_params` | 6 | gamma1, beta1, alpha1, gamma2, beta2, alpha2 |
-| `adaln_init_gain` | 0.0001 | init |
+| `adaln_init_gain` | 0 | init AdaLN-zero |
 
 ### 1.14 mRoPE Extended Configuration
 
