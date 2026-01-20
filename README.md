@@ -498,4 +498,7 @@ The adaln_init_gain value can only be correctly configured in src/config/pixelhd
 
 Correct the error in the modulate function formula.
 
+移除異常冗餘的殘差設計，這可能會導致訓練模型困難。
+
+Remove abnormal and redundant residual designs, as they may make model training difficult.
 
