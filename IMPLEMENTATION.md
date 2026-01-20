@@ -2,8 +2,8 @@
 
 > **PixelHDM**: Pixel Home-scale Diffusion Model
 
-**Version**: 1.2.0
-**Date**: 2026-01-19
+**Version**: 1.3.0
+**Date**: 2026-01-20
 
 ---
 
@@ -137,7 +137,7 @@ $$t = t_{eps} + (1 - 2 \cdot t_{eps}) \cdot \sigma(p_{mean} + p_{std} \cdot u), 
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
 | `adaln_num_params` | 6 | gamma1, beta1, alpha1, gamma2, beta2, alpha2 |
-| `adaln_init_gain` | 0 | init AdaLN-zero |
+| `adaln_init_gain` | 0.0001 | init |
 
 ### 1.14 mRoPE Extended Configuration
 
@@ -301,13 +301,17 @@ Input: (B, L, 256, 16)
    ↓ Compress: Linear(4096 → 1024)
 (B, L, 1024)
    ↓ RMSNorm
-   ↓ GQA Attention
+   ↓ GQA Attention (no internal residual)
    ↓ RMSNorm
    ↓ Expand: Linear(1024 → 4096), gain=0.1
 (B, L, 256, 16)
-   ↓ + Residual
 Output: (B, L, 256, 16)
 ```
+
+**Architecture Design** (per architecture diagram):
+- **No internal MHSA residual**: `Linear Compress → MHSA → Linear Expand` is a straight-line flow
+- **Block-level residual only**: Handled by `PixelTransformerBlock` via alpha gating: `x + α₁ * compaction(x)`
+- This matches the architecture diagram where ⊕ symbols only appear at block-level
 
 **expand_gain=0.1**: adaLN-Zero style, initial output ≈ identity mapping.
 
@@ -858,10 +862,11 @@ def get_dino_features(image_hash):
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3.0 | 2026-01-20 | **CRITICAL**: 移除 TokenCompaction 內部 MHSA 殘差 (符合架構圖設計) |
 | 1.2.0 | 2026-01-19 | **CRITICAL**: 從 PixelwiseAdaLN 移除 cond_norm (它破壞了 99.7% 文字信號) |
 | 1.1.0 | 2026-01-08 | Added missing config params, QK norm, Flash Attention, optimizer, ZClip, CFG scheduling |
 | 1.0.0 | 2026-01-08 | Initial version |
 
 ---
 
-*最後更新: 2026-01-19*
+*最後更新: 2026-01-20*
