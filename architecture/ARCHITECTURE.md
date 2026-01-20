@@ -2,8 +2,8 @@
 
 > **PixelHDM**: Pixel Home-scale Diffusion Model (像素家用規模擴散模型)
 
-**版本**: 1.2.0
-**更新日期**: 2026-01-19
+**版本**: 1.3.0
+**更新日期**: 2026-01-20
 
 ---
 
@@ -131,6 +131,7 @@ Compress-Attend-Expand 流程，實現 p⁴ = 65,536× 注意力成本降低:
 ┌─────────────────────────────────────────┐
 │ Attention: GatedMultiHeadAttention (GQA) │
 │ 使用 mRoPE 位置編碼                       │
+│ ⚠️ 無內部殘差 (符合架構圖設計)            │
 └─────────────────────────────────────────┘
        ↓
 ┌─────────────────────────────────────────┐
@@ -143,8 +144,15 @@ Compress-Attend-Expand 流程，實現 p⁴ = 65,536× 注意力成本降低:
 │ 使用 xavier_uniform(gain=0.1) 初始化     │
 └─────────────────────────────────────────┘
        ↓
-輸出: (B, L, p², D_pix) + 殘差連接
+輸出: (B, L, p², D_pix)
+       ↓
+殘差連接由外層 PiT Block 通過 α₁ gating 處理:
+x_out = x + α₁ × TokenCompaction(modulate(x))
 ```
+
+**關鍵設計 (2026-01-20 修正)**:
+- **MHSA 內部無殘差**: 架構圖中 Compress → MHSA → Expand 是直線流過
+- **殘差在 Block 層級**: 通過 α₁ gate 控制，符合 adaLN-Zero 設計
 
 ### 2.3 mRoPE 多軸旋轉位置編碼
 
@@ -350,10 +358,11 @@ guidance_scale: 7.5
 
 | 版本 | 日期 | 變更 |
 |------|------|------|
+| 1.3.0 | 2026-01-20 | **CRITICAL**: 移除 TokenCompaction 內部 MHSA 殘差 (符合架構圖設計) |
 | 1.2.0 | 2026-01-19 | **CRITICAL**: 移除 PixelwiseAdaLN 的 cond_norm (它破壞 99.7% 文字信號); MRoPE text_max_length 修復 |
 | 1.1.0 | 2026-01-08 | 重命名 PixelDiT → PixelHDM |
 | 1.0.0 | 2025-12-30 | 初始版本 |
 
 ---
 
-**注意**: 此文檔反映 2026-01-19 的代碼狀態
+**注意**: 此文檔反映 2026-01-20 的代碼狀態
