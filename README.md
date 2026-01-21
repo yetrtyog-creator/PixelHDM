@@ -502,3 +502,9 @@ Correct the error in the modulate function formula.
 
 Remove abnormal and redundant residual designs, as they may make model training difficult.
 
+2026/1/22
+
+修正REPA行為在桶中會假設方形可能造成特徵扭曲的問題。
+
+Fix the issue where REPA assumes a square bucket shape, which can lead to feature distortion.
+
