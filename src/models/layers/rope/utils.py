@@ -204,17 +204,20 @@ def create_position_ids_batched(
     img_width: int,
     patch_size: int = 16,
     device: Optional[torch.device] = None,
+    text_mask: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
-    Create batched 3-axis position IDs.
+    Create batched 3-axis position IDs with per-sample text length support.
 
     Args:
         batch_size: Batch size
-        text_len: Number of text tokens
+        text_len: Number of text tokens (padded length)
         img_height: Image height in pixels
         img_width: Image width in pixels
         patch_size: Patch size
         device: Device
+        text_mask: Optional (B, T) bool mask where True=valid token.
+                   If provided, image tokens use per-sample actual_text_len as axis0.
 
     Returns:
         position_ids: (batch_size, seq_len, 3)
@@ -222,7 +225,17 @@ def create_position_ids_batched(
     position_ids = create_position_ids(
         text_len, img_height, img_width, patch_size, device
     )
-    return position_ids.unsqueeze(0).expand(batch_size, -1, -1)
+    position_ids = position_ids.unsqueeze(0).expand(batch_size, -1, -1).clone()
+
+    # Per-sample text length: image tokens should use actual text length as axis0
+    if text_mask is not None:
+        actual_text_lens = text_mask.sum(dim=1)  # (B,)
+        num_patches = (img_height // patch_size) * (img_width // patch_size)
+        # Image tokens start at text_len, update their axis0 to per-sample actual_text_len
+        for b in range(batch_size):
+            position_ids[b, text_len:, 0] = actual_text_lens[b]
+
+    return position_ids
 
 
 def create_image_only_position_ids(

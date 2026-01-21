@@ -94,7 +94,9 @@ class PixelHDMConfig:
     mrope_img_h_dim: int = 24
     mrope_img_w_dim: int = 24
     mrope_text_max_len: int = 511  # 512-1: +1 in factory.py gives max_seq_len=512
-    mrope_img_max_len: int = 65536
+    mrope_img_max_len: int = 65536  # Legacy: used for fallback calculation
+    mrope_img_max_height: int = 128  # Max patches in height (explicit, no sqrt)
+    mrope_img_max_width: int = 128   # Max patches in width (explicit, no sqrt)
     mrope_theta: float = 10000.0
 
     # Embedding Configuration

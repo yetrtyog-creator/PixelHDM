@@ -128,7 +128,7 @@ def _validate_text_hidden_size(config: "PixelHDMConfig") -> None:
 
 
 def _validate_mrope_dimensions(config: "PixelHDMConfig") -> None:
-    """Validate mRoPE dimensions sum to head_dim."""
+    """Validate mRoPE dimensions sum to head_dim and text length bounds."""
     mrope_total = (
         config.mrope_text_dim +
         config.mrope_img_h_dim +
@@ -138,6 +138,12 @@ def _validate_mrope_dimensions(config: "PixelHDMConfig") -> None:
         f"mRoPE dimensions ({config.mrope_text_dim}+"
         f"{config.mrope_img_h_dim}+{config.mrope_img_w_dim}={mrope_total}) "
         f"must equal head_dim ({config.head_dim})"
+    )
+
+    # Validate text_max_length <= mrope_text_max_len to prevent position OOB
+    assert config.text_max_length <= config.mrope_text_max_len, (
+        f"text_max_length ({config.text_max_length}) must be <= "
+        f"mrope_text_max_len ({config.mrope_text_max_len})"
     )
 
 
