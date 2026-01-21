@@ -6,6 +6,7 @@ Uses DINOv3 feature alignment to accelerate training.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 import torch
@@ -14,6 +15,8 @@ import torch.nn.functional as F
 
 if TYPE_CHECKING:
     from ....config.model_config import PixelHDMConfig
+
+logger = logging.getLogger(__name__)
 
 
 class REPALoss(nn.Module):
@@ -43,6 +46,7 @@ class REPALoss(nn.Module):
         lambda_repa: float = 0.5,
         early_stop_step: int = 250000,
         dino_encoder: Optional[nn.Module] = None,
+        repa_patch_size: int = 16,
     ) -> None:
         super().__init__()
 
@@ -51,11 +55,13 @@ class REPALoss(nn.Module):
             lambda_repa = config.repa_lambda
             early_stop_step = config.repa_early_stop
             dino_dim = config.repa_hidden_size
+            repa_patch_size = config.repa_patch_size
 
         self.hidden_dim = hidden_dim
         self.dino_dim = dino_dim
         self.lambda_repa = lambda_repa
         self.early_stop_step = early_stop_step
+        self.repa_patch_size = repa_patch_size
 
         self.projector = nn.Conv2d(
             hidden_dim, dino_dim,
@@ -91,14 +97,14 @@ class REPALoss(nn.Module):
     def _compute_hw(
         self, L: int, x_clean: Optional[torch.Tensor]
     ) -> tuple[int, int]:
-        """Compute H, W from sequence length and clean image."""
+        """Compute H, W from sequence length and clean image using repa_patch_size."""
         if x_clean is not None and x_clean.dim() == 4:
             if x_clean.shape[-1] == 3:
                 img_H, img_W = x_clean.shape[1], x_clean.shape[2]
             else:
                 img_H, img_W = x_clean.shape[2], x_clean.shape[3]
-            H = img_H // 16
-            W = img_W // 16
+            H = img_H // self.repa_patch_size
+            W = img_W // self.repa_patch_size
         else:
             H = W = int(L ** 0.5)
             if H * W != L:
@@ -153,7 +159,16 @@ class REPALoss(nn.Module):
         h_proj = h_proj.flatten(2).permute(0, 2, 1)
 
         if h_proj.shape[1] != y.shape[1]:
-            h_proj = self._interpolate_features(h_proj, y.shape[1])
+            # Compute target H/W from DINO feature length using real image dimensions
+            H_target, W_target = self._compute_hw(y.shape[1], x_clean)
+
+            # Debug warning for interpolation mismatch
+            logger.warning(
+                f"[REPA] Interpolation triggered: h_proj ({H}x{W}={h_proj.shape[1]}) -> "
+                f"DINO ({H_target}x{W_target}={y.shape[1]})"
+            )
+
+            h_proj = self._interpolate_features(h_proj, H, W, H_target, W_target)
 
         h_norm = F.normalize(h_proj, dim=-1)
         y_norm = F.normalize(y, dim=-1)
@@ -166,13 +181,23 @@ class REPALoss(nn.Module):
     def _interpolate_features(
         self,
         features: torch.Tensor,
-        target_len: int,
+        H: int,
+        W: int,
+        H_target: int,
+        W_target: int,
     ) -> torch.Tensor:
-        """Interpolate features to match target length."""
-        B, L, D = features.shape
+        """
+        Interpolate features to match target grid size.
 
-        H = W = int(L ** 0.5)
-        H_target = W_target = int(target_len ** 0.5)
+        Args:
+            features: (B, L, D) features to interpolate
+            H, W: Source grid dimensions (must satisfy H * W == L)
+            H_target, W_target: Target grid dimensions
+
+        Returns:
+            Interpolated features (B, H_target * W_target, D)
+        """
+        B, L, D = features.shape
 
         features = features.view(B, H, W, D).permute(0, 3, 1, 2)
         features = F.interpolate(
@@ -181,7 +206,7 @@ class REPALoss(nn.Module):
             mode="bilinear",
             align_corners=False,
         )
-        features = features.permute(0, 2, 3, 1).view(B, target_len, D)
+        features = features.permute(0, 2, 3, 1).reshape(B, H_target * W_target, D)
 
         return features
 
