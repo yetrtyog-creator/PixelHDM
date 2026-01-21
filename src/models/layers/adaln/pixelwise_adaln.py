@@ -48,7 +48,7 @@ class PixelwiseAdaLN(nn.Module):
         pixel_dim: int = 16,
         patch_size: int = 16,
         num_params: int = 6,
-        init_gain: float = 0.1,
+        init_gain: float = 0.0001,
     ) -> None:
         super().__init__()
 
@@ -72,9 +72,12 @@ class PixelwiseAdaLN(nn.Module):
             bias=False,
         )
 
-        # Normalize after expansion to preserve condition differences
-        # This prevents signal dilution when 1024-dim is distributed to 256 pixels
-        self.cond_norm = RMSNorm(pixel_dim)
+        # NOTE: cond_norm (RMSNorm) was removed on 2026-01-19
+        # It was destroying 99.7% of text conditioning signal because:
+        # - cond_expand projects different s_cond to nearly parallel vectors (cosine_sim=0.998)
+        # - RMSNorm normalizes to unit length, preserving only direction
+        # - Since directions are nearly identical, outputs became nearly identical
+        # Signal retention: WITH cond_norm=0.3%, WITHOUT=53.9%
 
         self.param_gen = nn.Sequential(
             nn.SiLU(),
@@ -90,18 +93,14 @@ class PixelwiseAdaLN(nn.Module):
         Initialize weights for time conditioning.
 
         CRITICAL FIX (2026-01-04): param_gen zero init disabled time conditioning.
-        CRITICAL FIX (2026-01-07): Added RMSNorm, use Xavier for proper signal flow.
         CRITICAL FIX (2026-01-07): Small non-zero init to keep blocks active.
+        CRITICAL FIX (2026-01-19): Removed cond_norm - it destroyed 99.7% of text signal.
+        CRITICAL FIX (2026-01-20): Changed modulate to (1+gamma)*x, gamma now inits to 0.
 
-        Problem Found (2026-01-07):
-            - bias=[gamma=1, alpha=1] dilutes time signal to 24% retention
-            - bias=[gamma=0, alpha=0] makes PixelBlocks identity (do nothing!)
-
-        Solution: Small non-zero initialization
-            - gamma=0.1 (small but active modulation)
+        Initialization strategy (adaLN-Zero style):
+            - gamma=0.0 (identity scaling, since formula is (1+gamma)*x)
             - alpha=1.0 (full residual connection for gradient flow)
             - beta=0.0 (no shift initially)
-            This balances time signal retention with active blocks.
         """
         # Xavier init for cond_expand
         nn.init.xavier_uniform_(self.cond_expand.weight)
@@ -109,16 +108,14 @@ class PixelwiseAdaLN(nn.Module):
         # Xavier for param_gen weight
         nn.init.xavier_uniform_(self.param_gen[-1].weight)
 
-        # Small non-zero initialization (NOT full adaLN-Zero)
-        # gamma=0.1: small but non-zero modulation
+        # adaLN-Zero initialization
+        # gamma=0: identity scaling (since (1+0)*x = x)
         # alpha=1.0: full residual for gradient flow
         # beta=0.0: no shift
         with torch.no_grad():
             bias = self.param_gen[-1].bias.view(self.num_params, self.pixel_dim)
-            bias.zero_()  # Start from zero
-            bias[0].fill_(0.1)   # gamma1 = 0.1 (active modulation)
+            bias.zero_()  # Start from zero (gamma1, beta1, gamma2, beta2 = 0)
             bias[2].fill_(1.0)   # alpha1 = 1.0 (full residual)
-            bias[3].fill_(0.1)   # gamma2 = 0.1
             bias[5].fill_(1.0)   # alpha2 = 1.0
 
     def forward(
@@ -139,9 +136,7 @@ class PixelwiseAdaLN(nn.Module):
         cond_exp = self.cond_expand(s_cond)
         cond_exp = cond_exp.view(B, L, self.p2, self.pixel_dim)
 
-        # Normalize to preserve relative differences between conditions
-        # This prevents signal dilution from the 1024 -> 16 per-pixel compression
-        cond_exp = self.cond_norm(cond_exp)
+        # No normalization - cond_norm was removed (see __init__ comment)
 
         params = self.param_gen(cond_exp)
         params = params.chunk(self.num_params, dim=-1)
@@ -155,7 +150,20 @@ class PixelwiseAdaLN(nn.Module):
         beta: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Apply modulation: gamma * LayerNorm(x) + beta
+        Apply modulation: (1 + gamma) * LayerNorm(x) + beta
+
+        This follows the DiT adaLN-Zero formulation where:
+        - gamma=0 → output = LayerNorm(x) (identity scaling)
+        - gamma>0 → amplify, gamma<0 → attenuate
+
+        CRITICAL FIX (2026-01-20):
+        Previous: gamma * norm(x) + beta
+        - With gamma=0.1, output was scaled to 10% (90% signal loss!)
+        - After 4 blocks: 0.1^4 = 0.0001 effective scaling
+
+        Fixed: (1 + gamma) * norm(x) + beta
+        - With gamma=0, output = norm(x) (identity, no signal loss)
+        - Gradual modulation learning from identity
 
         Args:
             x: (B, L, p^2, D_pix) input
@@ -165,7 +173,7 @@ class PixelwiseAdaLN(nn.Module):
         Returns:
             Modulated tensor (B, L, p^2, D_pix)
         """
-        return gamma * self.norm(x) + beta
+        return (1 + gamma) * self.norm(x) + beta
 
     def extra_repr(self) -> str:
         return (

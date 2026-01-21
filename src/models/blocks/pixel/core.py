@@ -15,7 +15,7 @@ from torch.utils.checkpoint import checkpoint
 from ...layers.normalization import RMSNorm
 from ...layers.feedforward import SwiGLU
 from ...layers.adaln import PixelwiseAdaLN
-from ...attention.token_compaction import TokenCompaction
+from ...attention.token_compaction import TokenCompactionNoResidual
 
 if TYPE_CHECKING:
     from ....config.model_config import PixelHDMConfig
@@ -69,7 +69,9 @@ class PixelTransformerBlock(nn.Module):
             num_params=6,
         )
 
-        self.compaction = TokenCompaction(
+        # Use NoResidual version - residual is handled by outer block with alpha gating
+        # This matches the architecture diagram: x + α₁ × expand(attn(compress(modulate(x))))
+        self.compaction = TokenCompactionNoResidual(
             config=config,
             hidden_dim=hidden_dim,
             pixel_dim=pixel_dim,

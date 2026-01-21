@@ -142,7 +142,9 @@ class TokenCompaction(nn.Module):
         x_comp = self.norm(x_comp)
 
         # Self-Attention at patch level (Lumina2 style with position_ids)
-        x_comp = x_comp + self.attention(
+        # NOTE: No internal residual around MHSA - matches architecture diagram
+        # Residual is handled at block-level via alpha gating (x + α₁ * h)
+        x_comp = self.attention(
             x_comp,
             rope_fn=rope_fn,
             position_ids=position_ids,
@@ -219,8 +221,10 @@ class TokenCompactionNoResidual(TokenCompaction):
         x_comp = self.compress(x_flat)
 
         # Norm + Attention (Lumina2 style with position_ids)
+        # NOTE: No internal residual around MHSA - matches architecture diagram
+        # Residual is handled at block-level via alpha gating (x + α₁ * h)
         x_comp = self.norm(x_comp)
-        x_comp = x_comp + self.attention(
+        x_comp = self.attention(
             x_comp,
             rope_fn=rope_fn,
             position_ids=position_ids,
