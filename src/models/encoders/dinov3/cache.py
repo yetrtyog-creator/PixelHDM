@@ -17,6 +17,11 @@ import torch
 import torch.nn.functional as F
 
 
+# ImageNet normalization constants (required for DINOv3)
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
 class FeatureCacheMixin:
     """
     Mixin providing feature caching for DINOv3 encoder.
@@ -28,8 +33,21 @@ class FeatureCacheMixin:
         - self.patch_size: int
     """
 
+    # Class-level constants for ImageNet normalization
+    IMAGENET_MEAN = IMAGENET_MEAN
+    IMAGENET_STD = IMAGENET_STD
+
     def _prepare_input(self, x: torch.Tensor) -> torch.Tensor:
-        """Prepare input tensor."""
+        """Prepare input tensor with ImageNet normalization.
+
+        Dataset outputs are in [-1, 1] range. DINOv3 expects ImageNet-normalized input.
+
+        Steps:
+            1. Convert NHWC to NCHW if needed
+            2. Resize to patch-aligned dimensions
+            3. Convert [-1, 1] -> [0, 1]
+            4. Apply ImageNet normalization
+        """
         if x.dim() != 4:
             raise ValueError(f"Expected 4D tensor, got: {x.dim()}D")
         if x.shape[-1] == 3:
@@ -39,6 +57,15 @@ class FeatureCacheMixin:
             new_H = ((H + self.patch_size - 1) // self.patch_size) * self.patch_size
             new_W = ((W + self.patch_size - 1) // self.patch_size) * self.patch_size
             x = F.interpolate(x, size=(new_H, new_W), mode="bilinear")
+
+        # Step 1: Convert [-1, 1] -> [0, 1]
+        x = (x + 1.0) * 0.5
+
+        # Step 2: Apply ImageNet normalization
+        mean = torch.tensor(self.IMAGENET_MEAN, dtype=x.dtype, device=x.device).view(1, 3, 1, 1)
+        std = torch.tensor(self.IMAGENET_STD, dtype=x.dtype, device=x.device).view(1, 3, 1, 1)
+        x = (x - mean) / std
+
         return x
 
     def _check_cache(

@@ -51,10 +51,10 @@ def create_rope_from_config(config: "PixelHDMConfig") -> MRoPE:
         config.mrope_img_h_dim,
         config.mrope_img_w_dim,
     )
-    # Compute max_height/max_width from img_max_len (assumes square-ish image)
-    # img_max_len is total patches, so sqrt gives approx max dimension
-    import math
-    max_dim = int(math.sqrt(config.mrope_img_max_len)) + 1
+
+    # Use explicit config values for max_height/max_width (no sqrt calculation)
+    max_height = config.mrope_img_max_height
+    max_width = config.mrope_img_max_width
 
     # CRITICAL: max_seq_len must be text_max_len + 1 because image tokens
     # use axis0 = text_len as position (see create_position_ids in utils.py).
@@ -65,8 +65,8 @@ def create_rope_from_config(config: "PixelHDMConfig") -> MRoPE:
         head_dim=config.head_dim,
         axes_dims=axes_dims,
         max_seq_len=max_seq_len,
-        max_height=max_dim,
-        max_width=max_dim,
+        max_height=max_height,
+        max_width=max_width,
         theta=config.mrope_theta,
     )
 

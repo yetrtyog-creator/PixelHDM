@@ -144,10 +144,17 @@ class PixelHDM(nn.Module):
         img_tokens: torch.Tensor,
         text_embed: Optional[torch.Tensor],
         text_mask: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], int]:
-        """Create joint text-image sequence (Lumina2 style)."""
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], int, Optional[torch.Tensor]]:
+        """Create joint text-image sequence (Lumina2 style).
+
+        Returns:
+            joint_tokens: (B, T+L, D) concatenated sequence
+            joint_mask: (B, T+L) attention mask
+            text_len: padded text length T
+            text_only_mask: (B, T) text-only mask for per-sample position encoding
+        """
         if text_embed is None:
-            return img_tokens, None, 0
+            return img_tokens, None, 0, None
 
         B, L, D = img_tokens.shape
         T = text_embed.shape[1]
@@ -161,7 +168,7 @@ class PixelHDM(nn.Module):
             text_mask = text_mask.bool()
 
         joint_mask = torch.cat([text_mask, img_mask], dim=1)
-        return joint_tokens, joint_mask, T
+        return joint_tokens, joint_mask, T, text_mask
 
     def _extract_image_tokens(
         self, joint_tokens: torch.Tensor, text_len: int
@@ -229,9 +236,10 @@ class PixelHDM(nn.Module):
         x = self.patch_embed(x_t)
         t_embed = self.time_embed(t)
 
-        x, joint_mask, text_len = self._create_joint_sequence(x, text_embed, text_mask)
+        x, joint_mask, text_len, text_only_mask = self._create_joint_sequence(x, text_embed, text_mask)
 
         # Create Lumina2-style position IDs for joint text+image sequence
+        # Pass text_only_mask for per-sample text length in position encoding
         position_ids = create_position_ids_batched(
             batch_size=B,
             text_len=text_len,
@@ -239,6 +247,7 @@ class PixelHDM(nn.Module):
             img_width=W,
             patch_size=self.patch_size,
             device=x.device,
+            text_mask=text_only_mask,
         )
         rope_fn = self._create_rope_fn(position_ids)
 

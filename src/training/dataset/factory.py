@@ -383,7 +383,10 @@ def create_dataloader_from_config_v2(
         shuffle_chunks = data_config.shuffle_chunks
         shuffle_within_bucket = data_config.shuffle_within_bucket
         caption_dropout = data_config.caption_dropout
-        use_random_crop = data_config.use_random_crop
+        default_caption = data_config.default_caption
+        # center_crop=True takes priority: disable random_crop
+        use_random_crop = data_config.use_random_crop and not data_config.center_crop
+        use_random_flip = data_config.random_flip
         pin_memory = data_config.pin_memory
         prefetch_factor = data_config.prefetch_factor
         persistent_workers = data_config.persistent_workers
@@ -405,7 +408,9 @@ def create_dataloader_from_config_v2(
         shuffle_chunks = True
         shuffle_within_bucket = True
         caption_dropout = 0.1
+        default_caption = ""
         use_random_crop = True
+        use_random_flip = True
         pin_memory = True
         prefetch_factor = 2
         persistent_workers = False
@@ -425,7 +430,9 @@ def create_dataloader_from_config_v2(
             target_pixels=target_pixels,
             max_aspect_ratio=max_aspect_ratio,
             caption_dropout=caption_dropout,
+            default_caption=default_caption,
             use_random_crop=use_random_crop,
+            use_random_flip=use_random_flip,
             num_workers=num_workers,
             pin_memory=pin_memory,
             prefetch_factor=prefetch_factor,
@@ -445,9 +452,17 @@ def create_dataloader_from_config_v2(
         return create_dataloader(
             root_dir=root_dir,
             batch_size=batch_size,
-            target_resolution=512,
+            target_resolution=data_config.image_size if data_config else 512,
             patch_size=model_config.patch_size,
+            max_resolution=max_resolution,
+            min_resolution=min_resolution,
+            caption_dropout=caption_dropout,
+            default_caption=default_caption,
+            use_random_crop=use_random_crop,
+            use_random_flip=use_random_flip,
             num_workers=num_workers,
+            pin_memory=pin_memory,
+            prefetch_factor=prefetch_factor,
             shuffle=shuffle,
         )
 
