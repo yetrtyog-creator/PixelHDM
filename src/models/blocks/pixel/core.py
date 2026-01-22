@@ -160,10 +160,13 @@ class PixelTransformerBlock(nn.Module):
             )
 
         if self.training and self.use_checkpoint:
-            # Note: checkpoint doesn't support returning tuples well, so
-            # we only use checkpoint when not returning gamma_l2
+            # Use checkpoint even when returning gamma_l2 to avoid VRAM spikes.
             if return_gamma_l2 and self.gamma_l2_lambda > 0:
-                return self._forward_impl(x, s_cond, rope_fn, position_ids, return_gamma_l2)
+                return checkpoint(
+                    self._forward_impl,
+                    x, s_cond, rope_fn, position_ids, True,
+                    use_reentrant=False,
+                )
             return checkpoint(
                 self._forward_impl,
                 x, s_cond, rope_fn, position_ids, False,
