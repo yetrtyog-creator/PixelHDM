@@ -141,6 +141,7 @@ def create_dataloader(
     pin_memory: bool = True,
     prefetch_factor: int = 2,
     shuffle: bool = True,
+    drop_last: bool = True,
 ) -> DataLoader:
     """
     Create a DataLoader for fixed resolution training.
@@ -160,6 +161,7 @@ def create_dataloader(
         pin_memory: Pin memory
         prefetch_factor: Prefetch factor
         shuffle: Shuffle data
+        drop_last: Drop incomplete batches
 
     Returns:
         DataLoader instance
@@ -184,7 +186,7 @@ def create_dataloader(
         pin_memory=pin_memory,
         prefetch_factor=prefetch_factor if num_workers > 0 else None,
         collate_fn=collate_fn,
-        drop_last=True,
+        drop_last=drop_last,
     )
 
     return dataloader
@@ -473,6 +475,7 @@ def create_dataloader_from_config_v2(
             pin_memory=pin_memory,
             prefetch_factor=prefetch_factor,
             shuffle=shuffle,
+            drop_last=drop_last,
         )
 
 
