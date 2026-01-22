@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from ....config.model_config import PixelHDMConfig
 
 
+
+
 class PixelTransformerBlockLite(nn.Module):
     """
     Lightweight Pixel-Level Block
@@ -46,10 +48,10 @@ class PixelTransformerBlockLite(nn.Module):
         self.pixel_dim = pixel_dim
         self.p2 = patch_size ** 2
 
-        # Alpha depth scaling: 1/sqrt(L) for stable residual updates
-        # config=None defaults to 1.0 (no scaling) for backward compatibility
+        # Depth scaling (k=2 residual branches per block)
         pixel_layers = config.pixel_layers if config is not None else 1
-        self.residual_scale = 1.0 / math.sqrt(pixel_layers)
+        self.residual_scale = 1.0 / math.sqrt(2 * pixel_layers)
+
 
         self.adaln = PixelwiseAdaLN(
             hidden_dim=hidden_dim,
