@@ -508,6 +508,10 @@ Remove abnormal and redundant residual designs, as they may make model training 
 
 Fix the issue where REPA assumes a square bucket shape, which can lead to feature distortion.
 
+同時REPA的image正則化也已實施確保不會出問題。
+
+Meanwhile, REPA image regularization has been implemented to ensure no issues arise.
+
 (待修復)
 正在處理修復深度縮放的問題，Agent並沒有發現缺失導致排查困難，最終在完善足夠全面的測試中捕抓到加高層數收斂極其困難的問題，當前正在進行修復與測試。
 
