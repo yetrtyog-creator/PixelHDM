@@ -64,6 +64,7 @@ multi_resolution:
   chunk_size: 4
   shuffle_chunks: true
   shuffle_within_bucket: true
+  drop_last: true               # Drop incomplete batches (buckets with < batch_size)
 
 # -----------------------------------------------------------------------------
 # RAM Optimization
@@ -83,3 +84,4 @@ curriculum:
       steps: 10000
     - resolution: 512
       steps: 50000
+
