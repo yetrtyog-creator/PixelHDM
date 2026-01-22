@@ -508,3 +508,8 @@ Remove abnormal and redundant residual designs, as they may make model training 
 
 Fix the issue where REPA assumes a square bucket shape, which can lead to feature distortion.
 
+(待修復)
+正在處理修復深度縮放的問題，Agent並沒有發現缺失導致排查困難，最終在完善足夠全面的測試中捕抓到加高層數收斂極其困難的問題，當前正在進行修復與測試。
+
+(Pending Fix) We are currently addressing an issue with depth scaling. Initial troubleshooting was difficult as the Agent failed to detect the missing components. Ultimately, by implementing comprehensive testing, we identified that convergence becomes extremely difficult as the number of layers increases. Refinement and testing are currently underway.
+
