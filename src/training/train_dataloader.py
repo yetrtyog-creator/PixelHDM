@@ -49,6 +49,7 @@ def create_dataloader_from_config(
             use_random_flip=data_config.random_flip,
             num_workers=data_config.num_workers,
             pin_memory=data_config.pin_memory,
+            drop_last=data_config.drop_last,
         )
     else:
         from .dataset import ImageTextDataset, collate_fn
@@ -70,7 +71,7 @@ def create_dataloader_from_config(
             num_workers=data_config.num_workers,
             pin_memory=data_config.pin_memory,
             collate_fn=collate_fn,
-            drop_last=True,
+            drop_last=data_config.drop_last,
         )
 
     return dataloader
