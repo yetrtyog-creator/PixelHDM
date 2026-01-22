@@ -230,6 +230,7 @@ def _merge_multi_resolution_section(multi_res_cfg: dict, data_cfg: dict) -> None
         "chunk_size": "chunk_size",
         "shuffle_chunks": "shuffle_chunks",
         "shuffle_within_bucket": "shuffle_within_bucket",
+        "drop_last": "drop_last",
     }
 
     for src, dst in field_mapping.items():
