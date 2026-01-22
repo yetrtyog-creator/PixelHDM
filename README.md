@@ -529,4 +529,6 @@ drop_last現在並非硬編碼，可以在設置中修改，避免桶中圖片�
 
 drop_last is no longer hard-coded and can be modified in the settings. This prevents images from being discarded and excluded from training when the number of images in a bucket doesn't meet the batch size.
 
+如果你需要訓練多種長寬比且收斂好，盡可能均勻各種長寬比數量，並擁有大量詳細有結構的文字描述。
 
+Training for multi-aspect ratio support with optimal convergence requires maintaining an even distribution of various image shapes and leveraging extensive, well-structured captions.
