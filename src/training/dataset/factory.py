@@ -39,14 +39,15 @@ def _create_sequential_sampler(
     bucket_order: str,
     num_workers: int,
     buffer_manager: AdaptiveBufferManager,
+    drop_last: bool = True,
 ) -> Tuple[SequentialBucketSampler, int]:
     """Create SequentialBucketSampler with optimal prefetch_factor."""
-    logger.info(f"Using SequentialBucketSampler (RAM optimization mode, order={bucket_order})")
+    logger.info(f"Using SequentialBucketSampler (RAM optimization mode, order={bucket_order}, drop_last={drop_last})")
     sampler = SequentialBucketSampler(
         bucket_ids=bucket_ids,
         bucket_manager=bucket_manager,
         batch_size=batch_size,
-        drop_last=True,
+        drop_last=drop_last,
         order=bucket_order,
     )
     sampler.estimate_ram_usage()  # Log RAM usage
@@ -75,17 +76,18 @@ def _create_buffered_shuffle_sampler(
     shuffle_within_bucket: bool,
     num_workers: int,
     buffer_manager: AdaptiveBufferManager,
+    drop_last: bool = True,
 ) -> Tuple[BufferedShuffleBucketSampler, int]:
     """Create BufferedShuffleBucketSampler with optimal prefetch_factor."""
     logger.info(
         f"Using BufferedShuffleBucketSampler (chunk_size={chunk_size}, "
-        f"shuffle_chunks={shuffle_chunks}, shuffle_within_bucket={shuffle_within_bucket})"
+        f"shuffle_chunks={shuffle_chunks}, shuffle_within_bucket={shuffle_within_bucket}, drop_last={drop_last})"
     )
     sampler = BufferedShuffleBucketSampler(
         bucket_ids=bucket_ids,
         bucket_manager=bucket_manager,
         batch_size=batch_size,
-        drop_last=True,
+        drop_last=drop_last,
         chunk_size=chunk_size,
         shuffle_chunks=shuffle_chunks,
         shuffle_within_bucket=shuffle_within_bucket,
@@ -111,13 +113,14 @@ def _create_random_sampler(
     bucket_ids: List[int],
     batch_size: int,
     shuffle: bool,
+    drop_last: bool = True,
 ) -> Tuple[BucketSampler, int]:
     """Create BucketSampler (random mode)."""
-    logger.info(f"Using BucketSampler (random mode, shuffle={shuffle})")
+    logger.info(f"Using BucketSampler (random mode, shuffle={shuffle}, drop_last={drop_last})")
     sampler = BucketSampler(
         bucket_ids=bucket_ids,
         batch_size=batch_size,
-        drop_last=True,
+        drop_last=drop_last,
         shuffle=shuffle,
     )
     return sampler, 2
@@ -229,6 +232,8 @@ def create_bucket_dataloader(
     # 最大解析度約束 (嚴禁硬編碼)
     bucket_max_resolution: Optional[int] = None,  # 分桶最大解析度約束
     follow_max_resolution: bool = True,  # 是否遵循最大解析度約束
+    # Batch handling
+    drop_last: bool = True,  # 丟棄未滿 batch_size 的批次
     # 向後兼容
     optimization_mode: bool = False,
 ) -> DataLoader:
@@ -263,6 +268,7 @@ def create_bucket_dataloader(
         shuffle_within_bucket: 是否在桶內隨機打亂樣本順序
         bucket_max_resolution: 分桶最大解析度約束 (用於約束生成的桶)
         follow_max_resolution: 是否遵循最大解析度約束
+        drop_last: 丟棄未滿 batch_size 的批次 (建議保持 True)
         optimization_mode: 向後兼容參數，設為 True 等同於 sampler_mode="sequential"
 
     Returns:
@@ -313,15 +319,15 @@ def create_bucket_dataloader(
 
     if sampler_mode == "sequential":
         sampler, prefetch_factor = _create_sequential_sampler(
-            bucket_ids, bucket_manager, batch_size, bucket_order, num_workers, buffer_manager
+            bucket_ids, bucket_manager, batch_size, bucket_order, num_workers, buffer_manager, drop_last
         )
     elif sampler_mode == "buffered_shuffle":
         sampler, prefetch_factor = _create_buffered_shuffle_sampler(
             bucket_ids, bucket_manager, batch_size, chunk_size,
-            shuffle_chunks, shuffle_within_bucket, num_workers, buffer_manager
+            shuffle_chunks, shuffle_within_bucket, num_workers, buffer_manager, drop_last
         )
     else:  # "random" 模式
-        sampler, prefetch_factor = _create_random_sampler(bucket_ids, batch_size, shuffle)
+        sampler, prefetch_factor = _create_random_sampler(bucket_ids, batch_size, shuffle, drop_last)
 
     # 創建 DataLoader
     dataloader = DataLoader(
@@ -382,6 +388,7 @@ def create_dataloader_from_config_v2(
         chunk_size = data_config.chunk_size
         shuffle_chunks = data_config.shuffle_chunks
         shuffle_within_bucket = data_config.shuffle_within_bucket
+        drop_last = data_config.drop_last
         caption_dropout = data_config.caption_dropout
         default_caption = data_config.default_caption
         # center_crop=True takes priority: disable random_crop
@@ -407,6 +414,7 @@ def create_dataloader_from_config_v2(
         chunk_size = 4
         shuffle_chunks = True
         shuffle_within_bucket = True
+        drop_last = True
         caption_dropout = 0.1
         default_caption = ""
         use_random_crop = True
@@ -446,6 +454,7 @@ def create_dataloader_from_config_v2(
             shuffle_within_bucket=shuffle_within_bucket,
             bucket_max_resolution=bucket_max_resolution,
             follow_max_resolution=follow_max_resolution,
+            drop_last=drop_last,
         )
     else:
         logger.info("Using fixed resolution training")
