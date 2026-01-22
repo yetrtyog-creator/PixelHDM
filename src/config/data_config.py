@@ -82,6 +82,7 @@ class DataConfig:
     chunk_size: int = 4
     shuffle_chunks: bool = True
     shuffle_within_bucket: bool = True
+    drop_last: bool = True  # Drop incomplete batches (buckets with < batch_size samples)
 
     # Augmentation
     random_flip: bool = True
