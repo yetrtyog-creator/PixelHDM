@@ -22,6 +22,11 @@ if TYPE_CHECKING:
     from ....config.model_config import PixelHDMConfig
 
 
+
+
+_RESIDUAL_SCALE_K = 2
+
+
 class PatchTransformerBlock(nn.Module):
     """
     Patch-Level DiT Transformer Block
@@ -67,10 +72,9 @@ class PatchTransformerBlock(nn.Module):
         self.hidden_dim = hidden_dim
         self.use_checkpoint = use_checkpoint
 
-        # Alpha depth scaling: 1/sqrt(L) for stable residual updates
-        # config=None defaults to 1.0 (no scaling) for backward compatibility
+        # Depth scaling (k=2 residual branches per block)
         patch_layers = config.patch_layers if config is not None else 1
-        self.residual_scale = 1.0 / math.sqrt(patch_layers)
+        self.residual_scale = 1.0 / math.sqrt(_RESIDUAL_SCALE_K * patch_layers)
 
         # Attention Block
         self.pre_attn_norm = RMSNorm(hidden_dim)
