@@ -212,7 +212,8 @@ class PixelHDM(nn.Module):
         text_mask: Optional[torch.Tensor] = None,
         pooled_text_embed: Optional[torch.Tensor] = None,
         return_features: bool = False,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        return_aux: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         """Forward pass.
 
         Args:
@@ -222,9 +223,12 @@ class PixelHDM(nn.Module):
             text_mask: Text attention mask (B, T)
             pooled_text_embed: Pooled text embedding (B, D) for AdaLN conditioning
             return_features: Whether to return REPA features
+            return_aux: Whether to return auxiliary outputs (gamma_l2)
 
         Returns:
-            Predicted velocity v (B, H, W, 3), optionally with REPA features
+            Predicted velocity v (B, H, W, 3)
+            If return_features: (v, repa_features)
+            If return_aux: (v, repa_features_or_None, gamma_l2)
 
         Note:
             V-Prediction: 網路直接輸出 velocity v = x - ε
@@ -281,12 +285,27 @@ class PixelHDM(nn.Module):
         )
         pixel_rope_fn = self._create_rope_fn(pixel_position_ids)
 
+        # Accumulate gamma_l2 from pixel blocks when return_aux is True
+        gamma_l2_total = None
+        if return_aux:
+            gamma_l2_total = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+
         for block in self.pixel_blocks:
-            x = block(x, s_cond=s_cond, rope_fn=pixel_rope_fn, position_ids=pixel_position_ids)
+            if return_aux:
+                result = block(x, s_cond=s_cond, rope_fn=pixel_rope_fn, position_ids=pixel_position_ids, return_gamma_l2=True)
+                if isinstance(result, tuple):
+                    x, gamma_l2 = result
+                    gamma_l2_total = gamma_l2_total + gamma_l2
+                else:
+                    x = result
+            else:
+                x = block(x, s_cond=s_cond, rope_fn=pixel_rope_fn, position_ids=pixel_position_ids)
 
         x = self.output_norm(x)
         x = self.output_proj(x, image_size=(H, W))
 
+        if return_aux:
+            return x, repa_features, gamma_l2_total
         if return_features:
             return x, repa_features
         return x

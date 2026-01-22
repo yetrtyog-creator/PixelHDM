@@ -115,6 +115,9 @@ class PixelHDMConfig:
     adaln_num_params: int = 6
     adaln_init_gain: float = 0.0001  # 1e-4: small init for gradual modulation learning
 
+    # Gamma L2 Penalty (only for pixelwise AdaLN)
+    pixel_gamma_l2_lambda: float = 1e-4  # Lambda for pixel gamma L2 penalty
+
     # Inference defaults
     default_num_steps: int = 50
     default_guidance_scale: float = 7.5

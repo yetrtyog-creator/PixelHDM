@@ -1,0 +1,85 @@
+# =============================================================================
+# PixelHDM-RPEA-DinoV3 - Data Config
+# =============================================================================
+# Based on old_JITlumina2 data_config.yaml
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Dataset Configuration
+# -----------------------------------------------------------------------------
+dataset:
+  train_dir: 'G:\'  # 使用單引號避免反斜杠轉義問題
+  val_dir: null
+
+  # Resolution (max 512)
+  max_resolution: 512
+  min_resolution: 256
+  target_resolution: 512
+
+  # Batch configuration
+  batch_size: 16
+  num_workers: 0              # MUST be 0 on Windows (RAM leak bug)
+  pin_memory: false
+  prefetch_factor: 2
+  persistent_workers: false
+
+  # Data augmentation
+  augmentation:
+    use_random_crop: false
+    use_random_flip: false    # Disabled (same as old config)
+    use_color_jitter: false
+    center_crop_ratio: 0.9
+
+  # Image formats
+  image_extensions:
+    - ".jpg"
+    - ".jpeg"
+    - ".png"
+    - ".webp"
+
+# -----------------------------------------------------------------------------
+# Text Configuration
+# -----------------------------------------------------------------------------
+text:
+  max_length: 512
+  caption_file: null
+  default_caption: ""
+  caption_dropout: 0.0        # Disabled
+
+# -----------------------------------------------------------------------------
+# Multi-Resolution Training (Bucketing)
+# -----------------------------------------------------------------------------
+multi_resolution:
+  enabled: true
+
+  # Bucket parameters (max 512)
+  min_size: 256
+  max_size: 512               # Images scaled to fit within 512
+  step_size: 64
+  max_aspect_ratio: 2.0
+  target_pixels: 262144       # 512*512
+
+  # Sampler mode
+  sampler_mode: "buffered_shuffle"
+  chunk_size: 4
+  shuffle_chunks: true
+  shuffle_within_bucket: true
+
+# -----------------------------------------------------------------------------
+# RAM Optimization
+# -----------------------------------------------------------------------------
+optimization:
+  enabled: true               # Enable RAM optimization
+  bucket_order: "ascending"
+  buffer_size_gb: 4.0
+
+# -----------------------------------------------------------------------------
+# Curriculum Learning (Optional)
+# -----------------------------------------------------------------------------
+curriculum:
+  enabled: false
+  stages:
+    - resolution: 256
+      steps: 10000
+    - resolution: 512
+      steps: 50000
