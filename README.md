@@ -521,3 +521,6 @@ Remove abnormal and redundant residual designs, as they may make model training 
 
 Added the missing config.
 
+當前收斂性已得到修正而恢復正常。
+
+Fixed and restored convergence.
