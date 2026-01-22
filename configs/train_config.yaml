@@ -1,0 +1,194 @@
+# =============================================================================
+# PixelHDM-RPEA-DinoV3 - Training Config
+# =============================================================================
+# Based on old_JITlumina2 config structure
+# =============================================================================
+
+# 引用外部數據配置 (data section 從此文件載入)
+data_config: "data_config.yaml"
+
+# -----------------------------------------------------------------------------
+# Model Configuration
+# -----------------------------------------------------------------------------
+model:
+  # Core dimensions
+  hidden_dim: 1024          # D, matches Qwen3
+  pixel_dim: 16             # D_pix
+  patch_size: 16            # p, matches DINOv3
+
+
+  # Layer counts
+  patch_layers: 16          # N (Patch-Level)
+  pixel_layers: 4           # M (Pixel-Level)
+
+  # Attention (GQA)
+  num_heads: 16
+  num_kv_heads: 4           # 4:1 ratio
+  mlp_ratio: 3.0
+
+  # REPA (DINOv3 only)
+  repa_enabled: true              # ✅ 啟用 REPA (2026-01-08)
+  repa_encoder: "dinov3-vit-b"
+  repa_local_path: "Dinov3/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth"  # Local weights
+  repa_use_bf16: true             # bf16 for faster inference
+  repa_lambda: 0.5                # 標準權重
+  repa_early_stop: 500000
+
+  # Frequency loss
+  freq_loss_enabled: true
+  freq_loss_quality: 90
+  freq_loss_lambda: 1.0
+
+  # Text encoder (Qwen3-0.6B)
+  text_encoder_name: "Qwen/Qwen3-0.6B"
+  text_encoder_frozen: true
+  text_max_length: 511  # 512-1: image tokens use axis0=text_len, max_seq_len=512
+
+  # Optimization
+  use_flash_attention: true
+  use_gradient_checkpointing: true
+
+# -----------------------------------------------------------------------------
+# Training Configuration
+# -----------------------------------------------------------------------------
+training:
+  batch_size: 1               # Reduced from 16 to save VRAM
+  learning_rate: 1.0e-4       # ⚠️ 此欄位已棄用，實際使用 stepped_cosine_restart.base_lr
+  weight_decay: 0.01
+  precision: "bf16"
+
+  # Optimizer
+  optimizer:
+    type: "adamw_8bit"        # 8-bit AdamW (requires bitsandbytes)
+    betas: [0.9, 0.999]
+    eps: 1.0e-8
+
+  # Gradient
+  gradient:
+    accumulation_steps: 2     # 8 × 2 = effective batch 16
+    max_norm: 1.0
+    use_zclip: true
+    zclip_threshold: 2.5
+    zclip_ema_decay: 0.99
+
+  # EMA
+  ema:
+    enabled: true
+    decay: 0.999              # 正常訓練: 0.999 (標準 EMA 衰減)
+    update_after_step: 0
+
+  # CPU Checkpoint (Loss Spike recovery)
+  cpu_checkpoint:
+    enabled: false            # RAM optimization: disabled
+    save_interval: 500
+    spike_threshold: 5.0
+
+  # Learning rate schedule
+  lr_schedule:
+    schedule_type: "cosine_restart"
+    warmup_steps: 0           # No warmup
+    training_mode: "epochs"   # "steps" or "epochs"
+    total_steps: 200000       # Used when training_mode="steps"
+    num_epochs: 16            # 訓練 16 輪
+    min_lr: 1.0e-5            # 最低學習率
+    restart_epochs: 1         # 每輪一個週期 (16 輪 = 16 次重啟)
+    # restart_period: 0 = 自動計算
+    # 公式: restart_epochs × (len(dataloader) ÷ gradient_accumulation_steps)
+    restart_period: 0         # 自動計算，根據實際 dataloader 大小
+
+    # ==========================================================================
+    # 階梯式餘弦重啟 (Stepped Cosine Restart)
+    # ==========================================================================
+    # 正常訓練 (16 輪, 每 1 輪一個週期, 共 16 次重啟):
+    #   每週期: 峰值 -> 谷值 (cosine decay)
+    #   每週期結束後: 峰值 *= 0.9, 谷值 *= 0.9
+    # ==========================================================================
+    stepped_cosine_restart:
+      enabled: true             # ✅ 階梯式餘弦重啟
+      base_lr: 1.0e-4           # 起始峰值學習率
+      cycle_min_lr: 5.0e-5      # 起始谷值學習率 (峰值的 50%)
+      decay_rate: 0.9           # 每週期衰減率
+      global_min_lr: 1.0e-5     # 全局最低學習率
+      warmup_steps: 0           # 熱身步數
+
+# -----------------------------------------------------------------------------
+# Data Configuration - 從 data_config.yaml 載入 (見頂部 data_config 設定)
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# Output Configuration (EPOCH-BASED, not step-based)
+# -----------------------------------------------------------------------------
+output:
+  checkpoint_dir: "./checkpoints"
+  save_interval: 0            # Per N steps (0=disabled)
+  save_every_epochs: 1024        # 每輪保存
+  max_checkpoints: 1          # Keep 2 checkpoints (最新 + 上一個)
+
+  log_dir: "./logs"
+  log_interval: 0             # Per N steps (0=disabled)
+  log_every_epochs: 32         # Per N epochs (log every epoch)
+
+  eval_every: 500
+  num_eval_samples: 4
+
+  experiment_name: "pixelhdm-rpea-dinov3"
+
+# -----------------------------------------------------------------------------
+# Hardware Configuration
+# -----------------------------------------------------------------------------
+hardware:
+  device: "cuda"
+  mixed_precision: true
+  gradient_checkpointing: true
+  empty_cache_every: 100
+
+# -----------------------------------------------------------------------------
+# Flow Matching Configuration
+# -----------------------------------------------------------------------------
+flow_matching:
+  # 修復: P_mean=-0.8 導致 99.9% 樣本 t<0.8，模型無法學習成形階段
+  # P_mean=0.0, P_std=1.0 對齊 SD3/PixelHDM 標準
+  # 中心區域 (0.4-0.6) 佔 35%，t>0.8 有 5.5%
+  P_mean: 0.0
+  P_std: 1.0
+  t_eps: 0.05
+
+  # Resolution noise scaling - DISABLED for V-Prediction
+  # V-Prediction 不需要噪聲縮放，標準 Flow Matching 使用單位方差噪聲
+  noise_scale_enabled: false
+
+  # Frequency loss (DeCo)
+  freq_loss:
+    enabled: true
+    quality: 90
+    weight: 1.0
+    use_ycbcr: true
+    only_y_channel: false
+
+# -----------------------------------------------------------------------------
+# Inference Configuration
+# -----------------------------------------------------------------------------
+inference:
+  sampler:
+    method: "heun"
+    num_steps: 50
+    last_step_euler: true
+
+  cfg:
+    default_scale: 1.0        # PixelHDM default
+    experimental_scale: 2.5   # PixelHDM experimental
+    rescale_factor: 0.7
+    interval_start: 0.0
+    interval_end: 1.0
+
+  use_torch_compile: false    # Disabled for compatibility
+  compile_mode: "reduce-overhead"
+
+# -----------------------------------------------------------------------------
+# Resume Configuration
+# -----------------------------------------------------------------------------
+resume:
+  enabled: true
+  checkpoint_path: "auto"  # "auto" = 自動查找最新 checkpoint
+  reset_optimizer: false    # true = 重設優化器
+  reset_scheduler: false    # true = 重建 scheduler (自動計算 restart_period)
