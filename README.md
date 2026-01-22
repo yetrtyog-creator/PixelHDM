@@ -523,4 +523,8 @@ Added the missing config.
 
 當前收斂性已得到修正而恢復正常。
 
+drop_last現在並非硬編碼，可以在設置中修改，避免桶中圖片張數不滿足batch size被丟棄而未被訓練。
+
+drop_last is no longer hard-coded and can be modified in the settings. This prevents images from being discarded and excluded from training when the number of images in a bucket doesn't meet the batch size.
+
 Fixed and restored convergence.
