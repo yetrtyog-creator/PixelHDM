@@ -121,7 +121,7 @@ training:
 output:
   checkpoint_dir: "./checkpoints"
   save_interval: 0            # Per N steps (0=disabled)
-  save_every_epochs: 1024        # 每輪保存
+  save_every_epochs: 1        # 每輪保存
   max_checkpoints: 1          # Keep 2 checkpoints (最新 + 上一個)
 
   log_dir: "./logs"
@@ -192,3 +192,4 @@ resume:
   checkpoint_path: "auto"  # "auto" = 自動查找最新 checkpoint
   reset_optimizer: false    # true = 重設優化器
   reset_scheduler: false    # true = 重建 scheduler (自動計算 restart_period)
+
