@@ -6,7 +6,8 @@ Pixel-Level DiT Block with Pixel-wise AdaLN and Token Compaction.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Callable
+import math
+from typing import TYPE_CHECKING, Optional, Callable, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -61,6 +62,14 @@ class PixelTransformerBlock(nn.Module):
         self.p2 = patch_size ** 2
         self.use_checkpoint = use_checkpoint
 
+        # Alpha depth scaling: 1/sqrt(L) for stable residual updates
+        # config=None defaults to 1.0 (no scaling) for backward compatibility
+        pixel_layers = config.pixel_layers if config is not None else 1
+        self.residual_scale = 1.0 / math.sqrt(pixel_layers)
+
+        # Gamma L2 lambda for penalty (0 = disabled)
+        self.gamma_l2_lambda = config.pixel_gamma_l2_lambda if config is not None else 0.0
+
         self.adaln = PixelwiseAdaLN(
             config=config,
             hidden_dim=hidden_dim,
@@ -94,7 +103,8 @@ class PixelTransformerBlock(nn.Module):
         s_cond: torch.Tensor,
         rope_fn: Optional[Callable] = None,
         position_ids: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        return_gamma_l2: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Internal forward implementation.
 
         Args:
@@ -102,19 +112,25 @@ class PixelTransformerBlock(nn.Module):
             s_cond: Semantic+time condition from Patch-Level (B, L, D)
             rope_fn: RoPE function (Lumina2 style)
             position_ids: Lumina2-style position IDs (B, L, 3)
+            return_gamma_l2: Whether to return gamma L2 penalty
 
         Returns:
-            Output tensor (B, L, p^2, D_pix)
+            Output tensor (B, L, p^2, D_pix), optionally with gamma_l2
         """
         gamma1, beta1, alpha1, gamma2, beta2, alpha2 = self.adaln(s_cond)
 
         h = self.adaln.modulate(x, gamma1, beta1)
         h = self.compaction(h, rope_fn, position_ids)
-        x = x + alpha1 * h
+        x = x + (alpha1 * self.residual_scale) * h
 
         h = self.adaln.modulate(x, gamma2, beta2)
         h = self.mlp(h)
-        x = x + alpha2 * h
+        x = x + (alpha2 * self.residual_scale) * h
+
+        if return_gamma_l2 and self.gamma_l2_lambda > 0:
+            # Compute gamma L2: mean(gamma1^2) + mean(gamma2^2)
+            gamma_l2 = gamma1.pow(2).mean() + gamma2.pow(2).mean()
+            return x, gamma_l2
 
         return x
 
@@ -124,7 +140,8 @@ class PixelTransformerBlock(nn.Module):
         s_cond: torch.Tensor,
         rope_fn: Optional[Callable] = None,
         position_ids: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        return_gamma_l2: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Forward pass.
 
         Args:
@@ -132,9 +149,10 @@ class PixelTransformerBlock(nn.Module):
             s_cond: Semantic+time condition from Patch-Level (B, L, D)
             rope_fn: RoPE function (Lumina2 style)
             position_ids: Lumina2-style position IDs (B, L, 3)
+            return_gamma_l2: Whether to return gamma L2 penalty
 
         Returns:
-            Output tensor (B, L, p^2, D_pix)
+            Output tensor (B, L, p^2, D_pix), optionally with gamma_l2
         """
         if x.dim() != 4:
             raise ValueError(
@@ -142,13 +160,17 @@ class PixelTransformerBlock(nn.Module):
             )
 
         if self.training and self.use_checkpoint:
+            # Note: checkpoint doesn't support returning tuples well, so
+            # we only use checkpoint when not returning gamma_l2
+            if return_gamma_l2 and self.gamma_l2_lambda > 0:
+                return self._forward_impl(x, s_cond, rope_fn, position_ids, return_gamma_l2)
             return checkpoint(
                 self._forward_impl,
-                x, s_cond, rope_fn, position_ids,
+                x, s_cond, rope_fn, position_ids, False,
                 use_reentrant=False,
             )
         else:
-            return self._forward_impl(x, s_cond, rope_fn, position_ids)
+            return self._forward_impl(x, s_cond, rope_fn, position_ids, return_gamma_l2)
 
     def extra_repr(self) -> str:
         return (

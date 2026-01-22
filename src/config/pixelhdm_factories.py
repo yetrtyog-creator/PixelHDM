@@ -138,6 +138,7 @@ def config_to_dict(config: "PixelHDMConfig") -> dict:
         "gate_bias": config.gate_bias,
         "adaln_num_params": config.adaln_num_params,
         "adaln_init_gain": config.adaln_init_gain,
+        "pixel_gamma_l2_lambda": config.pixel_gamma_l2_lambda,
         "default_num_steps": config.default_num_steps,
         "default_guidance_scale": config.default_guidance_scale,
         "default_sampler_method": config.default_sampler_method,

@@ -78,6 +78,7 @@ def _validate_positive_values(config: "PixelHDMConfig") -> None:
         ("dropout", config.dropout),
         ("attention_dropout", config.attention_dropout),
         ("cfg_dropout", config.cfg_dropout),
+        ("pixel_gamma_l2_lambda", config.pixel_gamma_l2_lambda),
     ]
 
     for name, value in non_negative_float_fields:

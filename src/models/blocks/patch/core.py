@@ -6,6 +6,7 @@ Standard Transformer block with Token-Independent AdaLN.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Optional, Callable
 
 import torch
@@ -65,6 +66,11 @@ class PatchTransformerBlock(nn.Module):
 
         self.hidden_dim = hidden_dim
         self.use_checkpoint = use_checkpoint
+
+        # Alpha depth scaling: 1/sqrt(L) for stable residual updates
+        # config=None defaults to 1.0 (no scaling) for backward compatibility
+        patch_layers = config.patch_layers if config is not None else 1
+        self.residual_scale = 1.0 / math.sqrt(patch_layers)
 
         # Attention Block
         self.pre_attn_norm = RMSNorm(hidden_dim)
@@ -128,14 +134,14 @@ class PatchTransformerBlock(nn.Module):
             attention_mask=attention_mask,
         )
         h = self.post_attn_norm(h)
-        x = x + alpha1 * h
+        x = x + (alpha1 * self.residual_scale) * h
 
         # MLP Block
         h = self.pre_mlp_norm(x)
         h = gamma2 * h + beta2
         h = self.mlp(h)
         h = self.post_mlp_norm(h)
-        x = x + alpha2 * h
+        x = x + (alpha2 * self.residual_scale) * h
 
         return x
 

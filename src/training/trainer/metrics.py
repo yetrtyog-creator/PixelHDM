@@ -36,6 +36,7 @@ class TrainMetrics:
     loss_vloss: float = 0.0
     loss_freq: float = 0.0
     loss_repa: float = 0.0
+    loss_gamma_l2: float = 0.0
     grad_norm: float = 0.0
     learning_rate: float = 0.0
     samples_per_sec: float = 0.0
@@ -48,6 +49,7 @@ class TrainMetrics:
             "loss_vloss": self.loss_vloss,
             "loss_freq": self.loss_freq,
             "loss_repa": self.loss_repa,
+            "loss_gamma_l2": self.loss_gamma_l2,
             "grad_norm": self.grad_norm,
             "learning_rate": self.learning_rate,
             "samples_per_sec": self.samples_per_sec,
@@ -93,7 +95,7 @@ class MetricsLogger:
             f"Step {step}/{total_steps} | "
             f"Loss: {metrics.loss:.4f} "
             f"(v:{metrics.loss_vloss:.3f} f:{metrics.loss_freq:.3f} "
-            f"r:{metrics.loss_repa:.3f}) | "
+            f"r:{metrics.loss_repa:.3f} g:{metrics.loss_gamma_l2:.4f}) | "
             f"LR: {metrics.learning_rate:.2e}"
         )
 

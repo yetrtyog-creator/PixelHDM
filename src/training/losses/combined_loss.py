@@ -61,6 +61,7 @@ class CombinedLoss(nn.Module):
         lambda_repa: float = 0.5,
         freq_quality: int = 90,
         repa_early_stop: int = 250000,
+        lambda_gamma_l2: float = 1e-4,
     ) -> None:
         super().__init__()
 
@@ -70,9 +71,11 @@ class CombinedLoss(nn.Module):
             freq_quality = config.freq_loss_quality
             lambda_repa = config.repa_lambda
             repa_early_stop = config.repa_early_stop
+            lambda_gamma_l2 = config.pixel_gamma_l2_lambda
 
         self.lambda_freq = lambda_freq
         self.lambda_repa = lambda_repa
+        self.lambda_gamma_l2 = lambda_gamma_l2
 
         # V-Loss (with velocity output for freq loss)
         self.vloss = VLossWithVelocity(config=config)
@@ -113,6 +116,7 @@ class CombinedLoss(nn.Module):
         h_t: Optional[torch.Tensor] = None,
         step: int = 0,
         dino_features: Optional[torch.Tensor] = None,
+        gamma_l2: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         計算 Combined Loss
@@ -124,6 +128,7 @@ class CombinedLoss(nn.Module):
             h_t: 模型中間層特徵 (REPA 用，可選)
             step: 當前訓練步數
             dino_features: 預計算的 DINOv3 特徵 (可選)
+            gamma_l2: Pixel gamma L2 penalty from model (可選)
 
         Returns:
             Dict containing:
@@ -131,6 +136,7 @@ class CombinedLoss(nn.Module):
                 - vloss: V-Loss
                 - freq_loss: Frequency Loss
                 - repa_loss: REPA Loss
+                - gamma_l2: Gamma L2 penalty
         """
         # 處理輸入格式 (確保是 BCHW)
         if v_pred.dim() == 4 and v_pred.shape[-1] == 3:
@@ -156,14 +162,21 @@ class CombinedLoss(nn.Module):
         else:
             loss_repa = torch.tensor(0.0, device=v_pred.device, dtype=v_pred.dtype)
 
+        # 4. Gamma L2 Penalty
+        if gamma_l2 is not None and self.lambda_gamma_l2 > 0:
+            loss_gamma_l2 = self.lambda_gamma_l2 * gamma_l2
+        else:
+            loss_gamma_l2 = torch.tensor(0.0, device=v_pred.device, dtype=v_pred.dtype)
+
         # 總損失
-        total = loss_vloss + loss_freq + loss_repa
+        total = loss_vloss + loss_freq + loss_repa + loss_gamma_l2
 
         return {
             "total": total,
             "vloss": loss_vloss.detach(),
             "freq_loss": loss_freq.detach(),
             "repa_loss": loss_repa.detach(),
+            "gamma_l2": loss_gamma_l2.detach(),
         }
 
 
@@ -202,6 +215,7 @@ class CombinedLossSimple(nn.Module):
         v_pred: torch.Tensor,
         x_clean: torch.Tensor,
         noise: torch.Tensor,
+        gamma_l2: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         計算簡化版 Combined Loss
@@ -210,12 +224,14 @@ class CombinedLossSimple(nn.Module):
             v_pred: 網路預測的 velocity (V-Prediction)
             x_clean: 乾淨圖像 (目標)
             noise: 噪聲
+            gamma_l2: Pixel gamma L2 penalty (ignored in simple version)
 
         Returns:
             Dict containing:
                 - total: 總損失
                 - vloss: V-Loss
                 - freq_loss: Frequency Loss
+                - gamma_l2: Always 0 (for compatibility)
         """
         # 處理輸入格式
         if v_pred.dim() == 4 and v_pred.shape[-1] == 3:
@@ -240,6 +256,7 @@ class CombinedLossSimple(nn.Module):
             "total": total,
             "vloss": loss_vloss.detach(),
             "freq_loss": loss_freq.detach(),
+            "gamma_l2": torch.tensor(0.0, device=v_pred.device, dtype=v_pred.dtype),
         }
 
 
@@ -250,6 +267,7 @@ def create_combined_loss(
     lambda_repa: float = 0.5,
     freq_quality: int = 90,
     repa_early_stop: int = 250000,
+    lambda_gamma_l2: float = 1e-4,
 ) -> CombinedLoss:
     """創建 Combined Loss"""
     return CombinedLoss(
@@ -258,6 +276,7 @@ def create_combined_loss(
         lambda_repa=lambda_repa,
         freq_quality=freq_quality,
         repa_early_stop=repa_early_stop,
+        lambda_gamma_l2=lambda_gamma_l2,
     )
 
 

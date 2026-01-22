@@ -191,6 +191,12 @@ class StepExecutor(OptimizerStepMixin):
             return True
         return step < getattr(self.config, 'repa_early_stop', 250000)
 
+    def _should_compute_gamma_l2(self) -> bool:
+        """Check if gamma L2 penalty should be computed."""
+        if self.config is None:
+            return False
+        return getattr(self.config, 'pixel_gamma_l2_lambda', 0.0) > 0
+
     def _forward(
         self,
         z_t: torch.Tensor,
@@ -208,26 +214,41 @@ class StepExecutor(OptimizerStepMixin):
         V-Prediction: 模型直接輸出 velocity v = x - ε
         """
         device_type = 'cuda' if self.device.type == 'cuda' else 'cpu'
+        compute_gamma_l2 = self._should_compute_gamma_l2()
 
         with autocast(device_type, dtype=self.amp_dtype, enabled=self.use_amp):
-            result = self.model(
-                z_t, t,
-                text_embed=text_embeddings,
-                text_mask=text_mask,
-                pooled_text_embed=pooled_text_embed,
-                return_features=compute_repa,
-            )
-
-            if isinstance(result, tuple):
-                v_pred, h_t = result
+            # Use return_aux when we need gamma_l2
+            if compute_gamma_l2:
+                result = self.model(
+                    z_t, t,
+                    text_embed=text_embeddings,
+                    text_mask=text_mask,
+                    pooled_text_embed=pooled_text_embed,
+                    return_features=compute_repa,
+                    return_aux=True,
+                )
+                # return_aux returns (v_pred, repa_features_or_None, gamma_l2)
+                v_pred, h_t, gamma_l2 = result
             else:
-                v_pred = result
-                h_t = None
+                result = self.model(
+                    z_t, t,
+                    text_embed=text_embeddings,
+                    text_mask=text_mask,
+                    pooled_text_embed=pooled_text_embed,
+                    return_features=compute_repa,
+                )
+                if isinstance(result, tuple):
+                    v_pred, h_t = result
+                else:
+                    v_pred = result
+                    h_t = None
+                gamma_l2 = None
 
             # V-Prediction: combined_loss 直接接收 velocity
             loss_dict = self.combined_loss(
                 v_pred=v_pred, x_clean=x_clean,
                 noise=noise, h_t=h_t, step=step,
+                gamma_l2=gamma_l2,
             )
 
         return loss_dict, v_pred
@@ -256,6 +277,7 @@ class StepExecutor(OptimizerStepMixin):
             loss_vloss=loss_dict["vloss"].item(),
             loss_freq=loss_dict["freq_loss"].item(),
             loss_repa=loss_dict["repa_loss"].item(),
+            loss_gamma_l2=loss_dict.get("gamma_l2", torch.tensor(0.0)).item(),
             grad_norm=grad_norm,
             learning_rate=self.optimizer.param_groups[0]["lr"],
             samples_per_sec=batch_size / step_time,
