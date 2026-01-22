@@ -1,13 +1,13 @@
 """
-Pixel-Level Transformer Block (Core)
+Patch-Level Transformer Block (Core)
 
-Pixel-Level DiT Block with Pixel-wise AdaLN and Token Compaction.
+Standard Transformer block with Token-Independent AdaLN.
 """
 
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Optional, Callable, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Callable
 
 import torch
 import torch.nn as nn
@@ -15,8 +15,8 @@ from torch.utils.checkpoint import checkpoint
 
 from ...layers.normalization import RMSNorm
 from ...layers.feedforward import SwiGLU
-from ...layers.adaln import PixelwiseAdaLN
-from ...attention.token_compaction import TokenCompactionNoResidual
+from ...layers.adaln import TokenAdaLN
+from ...attention.gated_attention import GatedMultiHeadAttention
 
 if TYPE_CHECKING:
     from ....config.model_config import PixelHDMConfig
@@ -24,166 +24,162 @@ if TYPE_CHECKING:
 
 
 
-class PixelTransformerBlock(nn.Module):
-    """
-    Pixel-Level DiT Transformer Block
+_RESIDUAL_SCALE_K = 2
 
-    Uses Pixel-wise AdaLN and Token Compaction for fine-grained processing.
+
+class PatchTransformerBlock(nn.Module):
+    """
+    Patch-Level DiT Transformer Block
+
+    Standard Transformer block with Token-Independent AdaLN.
 
     Shape:
-        - x: (B, L, p^2, D_pix)
-        - s_cond: (B, L, D) - semantic+time condition from Patch-Level
-        - Output: (B, L, p^2, D_pix)
+        - x: (B, L, D)
+        - t_embed: (B, D) - time embedding
+        - Output: (B, L, D)
     """
 
     def __init__(
         self,
         config: Optional["PixelHDMConfig"] = None,
         hidden_dim: int = 1024,
-        pixel_dim: int = 16,
-        patch_size: int = 16,
-        mlp_ratio: float = 3.0,
         num_heads: int = 16,
         num_kv_heads: int = 4,
+        mlp_ratio: float = 3.0,
+        dropout: float = 0.0,
         use_checkpoint: bool = True,
     ) -> None:
         super().__init__()
 
+        # Gate and flash attention configuration
+        gate_type = "headwise"
+        gate_activation = "sigmoid"
+        gate_bias = False
+        use_flash_attention = True
+
         if config is not None:
             hidden_dim = config.hidden_dim
-            pixel_dim = config.pixel_dim
-            patch_size = config.patch_size
-            mlp_ratio = config.mlp_ratio
             num_heads = config.num_heads
             num_kv_heads = config.num_kv_heads
+            mlp_ratio = config.mlp_ratio
+            dropout = config.attention_dropout
             use_checkpoint = config.use_gradient_checkpointing
+            gate_type = config.gate_type
+            gate_activation = config.gate_activation
+            gate_bias = config.gate_bias
+            use_flash_attention = config.use_flash_attention
 
         self.hidden_dim = hidden_dim
-        self.pixel_dim = pixel_dim
-        self.patch_size = patch_size
-        self.p2 = patch_size ** 2
         self.use_checkpoint = use_checkpoint
 
         # Depth scaling (k=2 residual branches per block)
-        pixel_layers = config.pixel_layers if config is not None else 1
-        self.residual_scale = 1.0 / math.sqrt(2 * pixel_layers)
+        patch_layers = config.patch_layers if config is not None else 1
+        self.residual_scale = 1.0 / math.sqrt(_RESIDUAL_SCALE_K * patch_layers)
 
-
-        # Gamma L2 lambda for penalty (0 = disabled)
-        self.gamma_l2_lambda = config.pixel_gamma_l2_lambda if config is not None else 0.0
-
-        self.adaln = PixelwiseAdaLN(
-            config=config,
+        # Attention Block
+        self.pre_attn_norm = RMSNorm(hidden_dim)
+        self.attention = GatedMultiHeadAttention(
             hidden_dim=hidden_dim,
-            pixel_dim=pixel_dim,
-            patch_size=patch_size,
-            num_params=6,
-        )
-
-        # Use NoResidual version - residual is handled by outer block with alpha gating
-        # This matches the architecture diagram: x + α₁ × expand(attn(compress(modulate(x))))
-        self.compaction = TokenCompactionNoResidual(
-            config=config,
-            hidden_dim=hidden_dim,
-            pixel_dim=pixel_dim,
-            patch_size=patch_size,
             num_heads=num_heads,
             num_kv_heads=num_kv_heads,
+            dropout=dropout,
+            use_qk_norm=True,
+            use_gated_attention=True,
+            gate_type=gate_type,
+            gate_activation=gate_activation,
+            gate_bias=gate_bias,
+            use_flash_attention=use_flash_attention,
             use_checkpoint=False,
         )
+        self.post_attn_norm = RMSNorm(hidden_dim)
 
-        mlp_dim = int(pixel_dim * mlp_ratio)
+        # MLP Block
+        self.pre_mlp_norm = RMSNorm(hidden_dim)
+        mlp_dim = int(hidden_dim * mlp_ratio)
         self.mlp = SwiGLU(
-            hidden_dim=pixel_dim,
+            hidden_dim=hidden_dim,
             mlp_dim=mlp_dim,
-            dropout=0.0,
+            dropout=dropout,
         )
+        self.post_mlp_norm = RMSNorm(hidden_dim)
+
+        # AdaLN
+        self.adaln = TokenAdaLN(hidden_dim=hidden_dim, num_params=6)
 
     def _forward_impl(
         self,
         x: torch.Tensor,
-        s_cond: torch.Tensor,
+        t_embed: torch.Tensor,
         rope_fn: Optional[Callable] = None,
         position_ids: Optional[torch.Tensor] = None,
-        return_gamma_l2: bool = False,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """Internal forward implementation.
 
         Args:
-            x: Input tensor (B, L, p^2, D_pix)
-            s_cond: Semantic+time condition from Patch-Level (B, L, D)
+            x: Input tensor (B, L, D)
+            t_embed: Time embedding (B, D)
             rope_fn: RoPE function (Lumina2 style)
             position_ids: Lumina2-style position IDs (B, L, 3)
-            return_gamma_l2: Whether to return gamma L2 penalty
+            attention_mask: Attention mask (B, L)
 
         Returns:
-            Output tensor (B, L, p^2, D_pix), optionally with gamma_l2
+            Output tensor (B, L, D)
         """
-        gamma1, beta1, alpha1, gamma2, beta2, alpha2 = self.adaln(s_cond)
+        gamma1, beta1, alpha1, gamma2, beta2, alpha2 = self.adaln(t_embed)
 
-        h = self.adaln.modulate(x, gamma1, beta1)
-        h = self.compaction(h, rope_fn, position_ids)
+        # Attention Block
+        h = self.pre_attn_norm(x)
+        h = gamma1 * h + beta1
+        h = self.attention(
+            h,
+            rope_fn=rope_fn,
+            position_ids=position_ids,
+            attention_mask=attention_mask,
+        )
+        h = self.post_attn_norm(h)
         x = x + (alpha1 * self.residual_scale) * h
 
-        h = self.adaln.modulate(x, gamma2, beta2)
+        # MLP Block
+        h = self.pre_mlp_norm(x)
+        h = gamma2 * h + beta2
         h = self.mlp(h)
+        h = self.post_mlp_norm(h)
         x = x + (alpha2 * self.residual_scale) * h
-
-        if return_gamma_l2 and self.gamma_l2_lambda > 0:
-            # Compute gamma L2: mean(gamma1^2) + mean(gamma2^2)
-            gamma_l2 = gamma1.pow(2).mean() + gamma2.pow(2).mean()
-            return x, gamma_l2
 
         return x
 
     def forward(
         self,
         x: torch.Tensor,
-        s_cond: torch.Tensor,
+        t_embed: torch.Tensor,
         rope_fn: Optional[Callable] = None,
         position_ids: Optional[torch.Tensor] = None,
-        return_gamma_l2: bool = False,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """Forward pass.
 
         Args:
-            x: Input tensor (B, L, p^2, D_pix)
-            s_cond: Semantic+time condition from Patch-Level (B, L, D)
+            x: Input tensor (B, L, D)
+            t_embed: Time embedding (B, D)
             rope_fn: RoPE function (Lumina2 style)
             position_ids: Lumina2-style position IDs (B, L, 3)
-            return_gamma_l2: Whether to return gamma L2 penalty
+            attention_mask: Attention mask (B, L)
 
         Returns:
-            Output tensor (B, L, p^2, D_pix), optionally with gamma_l2
+            Output tensor (B, L, D)
         """
-        if x.dim() != 4:
-            raise ValueError(
-                f"Input should be 4D tensor (B, L, p^2, D_pix), got: {x.dim()}"
-            )
-
         if self.training and self.use_checkpoint:
-            # Use checkpoint even when returning gamma_l2 to avoid VRAM spikes.
-            if return_gamma_l2 and self.gamma_l2_lambda > 0:
-                return checkpoint(
-                    self._forward_impl,
-                    x, s_cond, rope_fn, position_ids, True,
-                    use_reentrant=False,
-                )
             return checkpoint(
                 self._forward_impl,
-                x, s_cond, rope_fn, position_ids, False,
+                x, t_embed, rope_fn, position_ids, attention_mask,
                 use_reentrant=False,
             )
         else:
-            return self._forward_impl(x, s_cond, rope_fn, position_ids, return_gamma_l2)
+            return self._forward_impl(x, t_embed, rope_fn, position_ids, attention_mask)
 
     def extra_repr(self) -> str:
-        return (
-            f"hidden_dim={self.hidden_dim}, "
-            f"pixel_dim={self.pixel_dim}, "
-            f"p^2={self.p2}, "
-            f"adaln=pixel_wise"
-        )
+        return f"hidden_dim={self.hidden_dim}, sandwich_norm=True, adaln=token_independent"
 
 
-__all__ = ["PixelTransformerBlock"]
+__all__ = ["PatchTransformerBlock"]
