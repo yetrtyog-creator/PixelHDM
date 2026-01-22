@@ -480,7 +480,7 @@ src/
 
 **Made with PyTorch**
 
-*Last Updated: 2026-01-20*
+*Last Updated: 2026-01-22*
 
 </div>
 
@@ -501,4 +501,23 @@ Correct the error in the modulate function formula.
 移除異常冗餘的殘差設計，這可能會導致訓練模型困難。
 
 Remove abnormal and redundant residual designs, as they may make model training difficult.
+
+2026/1/22
+
+修正REPA行為在桶中會假設方形可能造成特徵扭曲的問題。
+
+Fix the issue where REPA assumes a square bucket shape, which can lead to feature distortion.
+
+同時REPA的image正則化也已實施確保不會出問題。
+
+Meanwhile, REPA image regularization has been implemented to ensure no issues arise.
+
+(已修復) 正在處理修復深度縮放的問題，Agent並沒有發現缺失導致排查困難，最終在完善足夠全面的測試中捕抓到加高層數收斂極其困難的問題，當前正在進行修復與測試。
+
+(Fixed) We are currently addressing an issue with depth scaling. Initial troubleshooting was difficult as the Agent failed to detect the missing components. Ultimately, by implementing comprehensive testing, we identified that convergence becomes extremely difficult as the number of layers increases. Refinement and testing are currently underway.
+Remove abnormal and redundant residual designs, as they may make model training difficult.
+
+新增了一直忘記放了config。
+
+Added the missing config.
 
