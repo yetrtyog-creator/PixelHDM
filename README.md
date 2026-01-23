@@ -545,6 +545,10 @@ By introducing a coefficient $k=2$, we modified the depth scaling factor from $1
 
 觀察到的表現趨勢——特別是 $64 > 128 > 256 > 32 > 16$ 的關係——與 JIT 論文中報告的 FID-50K 曲線高度一致，儘管我是基於當前的相似性指標和損失值而不是實際的 FID-50K 運行進行評估的。
 
+但此結論並不適合用於過低patch size的情況下，例如未滿patch size 8也不太需要使用瓶頸與分層設計，會更偏向一般的DiT設計的改進。
+
 Current observations indicate that a bottleneck size of 64 in the patch embedding layer (with an embedding dimension of 768) yields optimal performance. Although verified multiple times, further rigorous validation is required. Preliminary evaluations suggest the optimal size approximates $(patch\_size/2)^2$, or equivalently $(patch\_size^2)/4$. The overall trend aligns closely with the JIT (Just Image Transformer) paper in terms of both image similarity and loss values. Following the completion of final testing, the update is scheduled for deployment to GitHub on January 26th.
 
 The observed trend in performance—specifically the relationship $64 > 128 > 256 > 32 > 16$—is highly consistent with the FID-50K curves reported in the JIT paper, even though we are evaluating based on current similarity metrics and loss values rather than actual FID-50K runs. 
+
+This conclusion does not hold for extremely small patch sizes. For patch sizes under 8, bottleneck and hierarchical structures are less necessary, as the design tends to follow an improved version of the conventional DiT.
