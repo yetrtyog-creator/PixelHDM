@@ -533,6 +533,8 @@ drop_last is no longer hard-coded and can be modified in the settings. This prev
 
 Training for multi-aspect ratio support with optimal convergence requires maintaining an even distribution of various image shapes and leveraging extensive, well-structured captions.
 
+2026/1/23
+
 引入係數k=2，改變深度縮放效果從1/平方根(層數)改變為1/平方根(k*層數)，使得訓練更穩定更好，對於小量樣本收斂效果可能會變得差些。
 
 By introducing a coefficient $k=2$, we modified the depth scaling factor from $1/\sqrt{L}$ to $1/\sqrt{kL}$. This enhances training stability and overall performance, although convergence on smaller datasets may be slightly compromised.
