@@ -538,3 +538,9 @@ Training for multi-aspect ratio support with optimal convergence requires mainta
 引入係數k=2，改變深度縮放效果從1/平方根(層數)改變為1/平方根(k*層數)，使得訓練更穩定更好，對於小量樣本收斂效果可能會變得差些。
 
 By introducing a coefficient $k=2$, we modified the depth scaling factor from $1/\sqrt{L}$ to $1/\sqrt{kL}$. This enhances training stability and overall performance, although convergence on smaller datasets may be slightly compromised.
+
+2026/1/24
+
+當前觀測到patch嵌入層瓶頸在64時(嵌入層維度768)為最優，但仍需要足夠的驗證檢查(已經多次檢驗)，大致評估後約為(patch size/2)^2為最優或(patch size^2)/4，整體趨勢與JIT(just image transformer)論文幾乎相同(無論圖片相似度或損失值)。待測試完善後約在1/26部署更新到github上。
+
+Current observations indicate that a bottleneck size of 64 in the patch embedding layer (with an embedding dimension of 768) yields optimal performance. Although verified multiple times, further rigorous validation is required. Preliminary evaluations suggest the optimal size approximates $(patch\_size/2)^2$, or equivalently $(patch\_size^2)/4$. The overall trend aligns closely with the JIT (Just Image Transformer) paper in terms of both image similarity and loss values. Following the completion of final testing, the update is scheduled for deployment to GitHub on January 26th.
