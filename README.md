@@ -552,3 +552,22 @@ Current observations indicate that a bottleneck size of 64 in the patch embeddin
 The observed trend in performance—specifically the relationship $64 > 128 > 256 > 32 > 16$—is highly consistent with the FID-50K curves reported in the JIT paper, even though we are evaluating based on current similarity metrics and loss values rather than actual FID-50K runs. 
 
 This conclusion does not hold for extremely small patch sizes. For patch sizes under 8, bottleneck and hierarchical structures are less necessary, as the design tends to follow an improved version of the conventional DiT.
+
+(探討)
+
+傳統DiT基於流匹配在訓練量大時patch size=1或2並沒有太大差別甚至可以說沒差，但在patch size=4以上時會開始特別。
+而要探究低維流形有效基本上屬於patch size=8以上的範疇。
+同時一些人的研究和測試指出patch size大於8時X預測才優於V預測，但仍要差於更低patch size，難以用訓練量和網路容量彌補。
+不同的patch size下可能效果不同，以pixelDiT的研究結論在模型更大時patch size=16跟8是沒有什麼差異的，但是更往上patch size=32時可能會需要相當大容量的模型才能抹平差異，此時瓶頸的真實影響難以估計。
+
+實際大量數據且patch size=32和大模型尤其隱藏層足夠大時的並未充分研究，故patch size=32時patch嵌入層維度3072瓶頸到256，還是需要更高或更低並未知曉，仍然需要有人實驗探索。
+
+(Discussion)
+
+Traditional Diffusion Transformers (DiT) based on Flow Matching show little to no significant difference between patch size=1 or 2 when the training scale is large. However, peculiar characteristics begin to emerge when the patch size reaches 4 or above.
+
+To investigate the effectiveness of the low-dimensional manifold, one generally needs to look at the regime where patch size ≥ 8. Meanwhile, some studies and empirical tests indicate that X-prediction only outperforms V-prediction when the patch size is greater than 8. Nevertheless, its performance remains inferior to that of smaller patch sizes, a gap that is difficult to bridge even with increased training volume or network capacity.
+
+The effects may vary across different patch sizes. According to research on PixelDiT, there is negligible difference between patch size=16 and 8 as the model scales up. However, moving further to patch size=32 may require a significantly larger model capacity to offset the performance drop; at this point, the true impact of the bottleneck becomes difficult to estimate.
+
+The scenario involving massive datasets combined with patch size=32 and large-scale models (especially those with sufficiently large hidden layers) remains under-researched. Consequently, it is still unknown whether a patch embedding dimension of 3072 bottlenecked down to 256 is optimal for patch size=32, or if a higher/lower dimension is required. This area still necessitates further experimental exploration.
