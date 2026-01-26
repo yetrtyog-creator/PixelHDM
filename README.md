@@ -574,6 +574,6 @@ The scenario involving massive datasets combined with patch size=32 and large-sc
 
 2026/1/26
 
-經檢查訓練後無副作用，瓶頸的設計是合理的，但SiLU的門控設計會傾向讓patch嵌入層的std更低一些，但會保持穩定，相比於其他具有門控對比Xavier初始化的樹值比例來說，縮放會從0.88~0.9x降低至接近0.5x。
+經檢查訓練後無副作用，瓶頸的設計是合理的，但SiLU的門控設計會傾向讓patch嵌入層的std更低一些，但會保持穩定，相比於其他具有門控對比Xavier初始化的數值比例來說，縮放會從0.88~0.9x降低至接近0.5x。
 
 Post-training inspection reveals no adverse side effects, confirming that the bottleneck design is sound. However, the gating mechanism in SiLU tends to yield a lower standard deviation (std) in the patch embedding layer, while maintaining stability. Compared to other gated architectures relative to Xavier initialization scales, the scaling ratio decreases from the typical 0.88–0.9x range to approximately 0.5x.
