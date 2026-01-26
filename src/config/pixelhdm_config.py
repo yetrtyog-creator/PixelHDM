@@ -9,7 +9,7 @@ Date: 2026-01-02
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 
@@ -37,7 +37,10 @@ class PixelHDMConfig:
     # MLP configuration
     mlp_ratio: float = 3.0
     mlp_type: Literal["swiglu", "gelu"] = "swiglu"
-    bottleneck_dim: int = 256
+    # Bottleneck dimension for PatchEmbedding
+    # Default: patch_size^2 // 4 (e.g., 16^2 // 4 = 64 for patch_size=16)
+    # Set explicitly to override automatic calculation
+    bottleneck_dim: Optional[int] = None
 
     # Input/Output
     in_channels: int = 3
@@ -124,7 +127,12 @@ class PixelHDMConfig:
     default_sampler_method: Literal["euler", "heun", "dpm_pp", "dpm_pp_2s"] = "heun"
 
     def __post_init__(self):
-        """Validate configuration after initialization."""
+        """Compute defaults and validate configuration after initialization."""
+        # Compute bottleneck_dim default if not provided
+        # Formula: patch_size^2 // 4 (e.g., 16^2 // 4 = 64)
+        if self.bottleneck_dim is None:
+            object.__setattr__(self, 'bottleneck_dim', self.patch_size ** 2 // 4)
+
         from .validators import validate_pixelhdm_config
         validate_pixelhdm_config(self)
 
