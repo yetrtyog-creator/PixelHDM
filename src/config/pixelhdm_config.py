@@ -47,9 +47,9 @@ class PixelHDMConfig:
     out_channels: int = 3
     max_resolution: int = 1024
 
-    # Time convention (PixelHDM style)
+    # Time convention (PixelHDM style / Rectified Flow)
     time_convention: Literal["pixelhdm", "rectified"] = "pixelhdm"
-    prediction_type: Literal["x", "v", "eps"] = "x"
+    prediction_type: Literal["x", "v", "eps"] = "v"  # V-Prediction: v = x - noise
     time_p_mean: float = 0.0
     time_p_std: float = 1.0
     time_eps: float = 0.05
