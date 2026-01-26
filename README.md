@@ -571,3 +571,9 @@ To investigate the effectiveness of the low-dimensional manifold, one generally 
 The effects may vary across different patch sizes. According to research on PixelDiT, there is negligible difference between patch size=16 and 8 as the model scales up. However, moving further to patch size=32 may require a significantly larger model capacity to offset the performance drop; at this point, the true impact of the bottleneck becomes difficult to estimate.
 
 The scenario involving massive datasets combined with patch size=32 and large-scale models (especially those with sufficiently large hidden layers) remains under-researched. Consequently, it is still unknown whether a patch embedding dimension of 3072 bottlenecked down to 256 is optimal for patch size=32, or if a higher/lower dimension is required. This area still necessitates further experimental exploration.
+
+2026/1/26
+
+經檢查訓練後無副作用，瓶頸的設計是合理的，但SiLU的門控設計會傾向讓patch嵌入層的std更低一些，但會保持穩定，相比於其他具有門控對比Xavier初始化的樹值比例來說，縮放會從0.88~0.9x降低至接近0.5x。
+
+Post-training inspection reveals no adverse side effects, confirming that the bottleneck design is sound. However, the gating mechanism in SiLU tends to yield a lower standard deviation (std) in the patch embedding layer, while maintaining stability. Compared to other gated architectures relative to Xavier initialization scales, the scaling ratio decreases from the typical 0.88–0.9x range to approximately 0.5x.
