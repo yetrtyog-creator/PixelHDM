@@ -49,8 +49,8 @@ This project draws inspiration from the following research papers:
 PixelHDM is a state-of-the-art text-to-image generation model combining:
 
 - **PixelDiT**: Dual-path design (Patch-level + Pixel-level) for high-fidelity generation
-- **DINOv3 iREPA Loss**: Improved REPA with Conv2d projection and spatial normalization ([arXiv:2512.10794](https://arxiv.org/abs/2512.10794))
-- **Triple Loss System**: V-Loss + Frequency Loss ([DeCo](https://arxiv.org/abs/2511.19365)) + iREPA Loss for comprehensive optimization
+- **DINOv3 iREPA Loss**: Improved REPA with Conv2d projection and spatial normalization
+- **Triple Loss System**: V-Loss + Frequency Loss + iREPA Loss for comprehensive optimization
 - **Flow Matching**: Modern ODE-based generative framework with V-Prediction
 - **Gated Attention**: Based on Qwen3-next design.
 
@@ -267,8 +267,8 @@ src/
 PixelHDM 是一個結合以下技術的先進文本到圖像生成模型：
 
 - **PixelDiT 架構**：雙路徑設計（Patch級 + Pixel級）實現高保真生成
-- **DINOv3 iREPA 損失**：改進的 REPA，採用 Conv2d 投影和空間歸一化（[arXiv:2512.10794](https://arxiv.org/abs/2512.10794)）
-- **三重損失系統**：V-Loss + 頻率損失（[DeCo](https://arxiv.org/abs/2511.19365)）+ iREPA 損失，全面優化
+- **DINOv3 iREPA 損失**：改進的 REPA，採用 Conv2d 投影和空間歸一化
+- **三重損失系統**：V-Loss + 頻率損失 + iREPA 損失，全面優化
 - **Flow Matching**：基於 ODE 的現代生成框架，使用 V-Prediction
 - **Gated Attention** :基於Qwen3-next的設計。
 
