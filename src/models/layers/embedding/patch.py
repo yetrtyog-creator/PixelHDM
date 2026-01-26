@@ -139,6 +139,7 @@ class PatchEmbedding(nn.Module):
         self.patch_size = patch_size
         self.hidden_dim = hidden_dim
         self.in_channels = in_channels
+        self.bottleneck_dim = bottleneck_dim
         self.p2 = patch_size ** 2
 
         input_dim = in_channels * self.p2
@@ -194,7 +195,7 @@ class PatchEmbedding(nn.Module):
         return x
 
     def extra_repr(self) -> str:
-        return f"patch_size={self.patch_size}, hidden_dim={self.hidden_dim}"
+        return f"patch_size={self.patch_size}, bottleneck_dim={self.bottleneck_dim}, hidden_dim={self.hidden_dim}"
 
 
 class PixelUnpatchify(nn.Module):
