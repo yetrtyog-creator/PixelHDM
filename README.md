@@ -581,9 +581,13 @@ Post-training inspection reveals no adverse side effects, confirming that the bo
 
 2026/1/30
 
+(未更新)
+
 觀察到池化文字條件嵌入信號過強，進行設計並做詳細測試改善，從而在大規模t2i中有效改善收斂並避免過於平滑而造成假性的REAP loss下降，最終將難以收斂。
 
 同時正在測試引入patch方面的設計，一個附屬的池化層設計，進行微弱偏置強化結構的收斂能力。
+
+(Not updated)
 
 Observed that the pooled text-conditioned embedding signal was excessively strong. Designed and conducted detailed testing on improvements to effectively enhance convergence in large-scale T2I (Text-to-Image) models and prevent over-smoothing, which otherwise causes a pseudo-reduction in REAP loss and ultimately leads to non-convergence.
 
