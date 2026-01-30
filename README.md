@@ -578,3 +578,13 @@ The scenario involving massive datasets combined with patch size=32 and large-sc
 經檢查訓練後無副作用，瓶頸的設計是合理的，但SiLU的門控設計會傾向讓patch嵌入層的std更低一些，但會保持穩定，相比於其他具有門控對比Xavier初始化的數值比例來說，縮放會從0.88~0.9x降低至接近0.5x。
 
 Post-training inspection reveals no adverse side effects, confirming that the bottleneck design is sound. However, the gating mechanism in SiLU tends to yield a lower standard deviation (std) in the patch embedding layer, while maintaining stability. Compared to other gated architectures relative to Xavier initialization scales, the scaling ratio decreases from the typical 0.88–0.9x range to approximately 0.5x.
+
+2026/1/30
+
+觀察到池化文字條件嵌入信號過強，進行設計並做詳細測試改善，從而在大規模t2i中有效改善收斂並避免過於平滑而造成假性的REAP loss下降，最終將難以收斂。
+
+同時正在測試引入patch方面的設計，一個附屬的池化層設計，進行微弱偏置強化結構的收斂能力。
+
+Observed that the pooled text-conditioned embedding signal was excessively strong. Designed and conducted detailed testing on improvements to effectively enhance convergence in large-scale T2I (Text-to-Image) models and prevent over-smoothing, which otherwise causes a pseudo-reduction in REAP loss and ultimately leads to non-convergence.
+
+Simultaneously, we are testing the introduction of a patch-level design—a subsidiary pooling layer architecture—to apply a subtle bias that strengthens the model's structural convergence capabilities.
