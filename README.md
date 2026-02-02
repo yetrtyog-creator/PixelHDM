@@ -597,4 +597,12 @@ Simultaneously, we are testing the introduction of a patch-level design—a subs
 
 發現池化文字嵌入基本上貢獻極低並導致收斂更難且架構更複雜，最終決定移除，但目前github上專案暫時不更新而是等待全面測試和訓練完善後更新。
 
+經過確認池化層設計會損害後期在深層patch路徑的收斂速度，與池化文字嵌入都應該移除。
+
+當前正在進行測試。
+
 We found that pooled text embeddings contribute very little while making convergence more difficult and the architecture overly complex. Consequently, we have decided to remove them. Currently, the GitHub repository will not be updated immediately; instead, we will wait until comprehensive testing and training are finalized before releasing the update.
+
+It has been confirmed that the design of the pooling layer impairs the convergence speed of the deep patch path in later stages. Therefore, both the pooling layer and pooled text embeddings should be removed.
+
+Testing is currently underway.
