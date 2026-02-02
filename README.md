@@ -592,3 +592,9 @@ Post-training inspection reveals no adverse side effects, confirming that the bo
 Observed that the pooled text-conditioned embedding signal was excessively strong. Designed and conducted detailed testing on improvements to effectively enhance convergence in large-scale T2I (Text-to-Image) models and prevent over-smoothing, which otherwise causes a pseudo-reduction in REAP loss and ultimately leads to non-convergence.
 
 Simultaneously, we are testing the introduction of a patch-level design—a subsidiary pooling layer architecture—to apply a subtle bias that strengthens the model's structural convergence capabilities.
+
+2026/2/2
+
+發現池化文字嵌入基本上貢獻極低並導致收斂更難且架構更複雜，最終決定移除，但目前github上專案暫時不更新而是等待全面測試和訓練完善後更新。
+
+We found that pooled text embeddings contribute very little while making convergence more difficult and the architecture overly complex. Consequently, we have decided to remove them. Currently, the GitHub repository will not be updated immediately; instead, we will wait until comprehensive testing and training are finalized before releasing the update.
