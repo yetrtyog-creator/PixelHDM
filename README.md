@@ -606,3 +606,13 @@ We found that pooled text embeddings contribute very little while making converg
 It has been confirmed that the design of the pooling layer impairs the convergence speed of the deep patch path in later stages. Therefore, both the pooling layer and pooled text embeddings should be removed.
 
 Testing is currently underway.
+
+2026/2/4
+
+(未更新)
+
+正在嘗試雙模態各別模態內經過處理器的設計來穩定單模態，但並非雙流交叉注意力設計仍保持單流設計。從而消除兩個模態間空間的巨大差異，使得跨模態相關性有效提升，避免主幹核心過度承受復雜的衝擊，同時修改初始化會變得收斂更慢但更穩定，並修復大量細節設計問題。
+
+(Not updated)
+
+We are experimenting with a design that processes each modality independently within its own processor to stabilize unimodal representation, while maintaining a single-stream architecture instead of a dual-stream cross-attention design. This approach eliminates the significant spatial disparity between the two modalities, thereby effectively enhancing cross-modal correlation and preventing the backbone core from being overwhelmed by complex impacts. Additionally, modifying the initialization results in slower but more stable convergence, alongside the resolution of numerous fine-grained design issues.
