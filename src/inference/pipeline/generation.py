@@ -111,7 +111,7 @@ class Generator:
                     use_logit_normal=True,
                     time_p_mean=self.config.time_p_mean,
                     time_p_std=self.config.time_p_std,
-                    use_dynamic_timestep_shift=getattr(self.config, "use_dynamic_timestep_shift", False),
+                    use_dynamic_timestep_shift=getattr(self.config, "use_dynamic_timestep_shift", True),
                     timestep_shift_config=shift_config,
                 )
             else:

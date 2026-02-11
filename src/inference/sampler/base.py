@@ -128,7 +128,7 @@ class BaseSampler(ABC):
         use_logit_normal: bool = True,
         time_p_mean: float = 0.0,
         time_p_std: float = 1.0,
-        use_dynamic_timestep_shift: bool = False,
+        use_dynamic_timestep_shift: bool = True,
         timestep_shift_config: Optional[dict] = None,
     ) -> None:
         self.num_steps = num_steps
