@@ -6,9 +6,12 @@ It is designed to locate root causes and estimate bottleneck shares (`data_wait`
 ## Folder Contents
 
 - `analyze_bottleneck.py`: Parses `step_metrics.jsonl` and optional `gpu_telemetry.csv`, then writes bottleneck reports.
+- `runtime_instrumentation.py`: Runtime monkeypatch hooks for `TrainingLoop`/`StepExecutor` (no src edits).
+- `run_instrumented_training.py`: Test-side training entrypoint that writes phase-0 `step_metrics.jsonl`.
 - `run_gpu_telemetry.ps1`: Starts `nvidia-smi` telemetry capture with a fixed sampling interval.
-- `run_profile_session.ps1`: Convenience wrapper to run training + telemetry in one session.
+- `run_profile_session.ps1`: Convenience wrapper to run training + telemetry in one session (supports instrumented runner).
 - `test_analyze_bottleneck.py`: Unit tests for parser/ratio/correlation logic.
+- `test_runtime_instrumentation.py`: Unit tests for runtime hook and JSONL output contracts.
 
 ## Required Input Files
 
@@ -24,7 +27,20 @@ It is designed to locate root causes and estimate bottleneck shares (`data_wait`
 
 ## Quick Start
 
-1. Capture GPU telemetry:
+1. Run one instrumented profiling session (recommended, no src changes):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/tester/perf_bottleneck/run_profile_session.ps1 `
+  -RunId baseline_s42_20260211 `
+  -Config configs/train_config.yaml `
+  -Seed 42 `
+  -MaxSteps 1500 `
+  -TimingMode light `
+  -ProfileStride 50 `
+  -IntervalMs 200
+```
+
+2. Or capture GPU telemetry separately:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tests/tester/perf_bottleneck/run_gpu_telemetry.ps1 `
@@ -32,9 +48,19 @@ powershell -ExecutionPolicy Bypass -File tests/tester/perf_bottleneck/run_gpu_te
   -IntervalMs 200
 ```
 
-2. Run training with your instrumentation outputting `step_metrics.jsonl`.
+3. Run training with test-side instrumentation outputting `step_metrics.jsonl`:
 
-3. Analyze bottleneck shares:
+```powershell
+python tests/tester/perf_bottleneck/run_instrumented_training.py `
+  --config configs/train_config.yaml `
+  --run-id baseline_s42_20260211 `
+  --profile-root logs/profiling `
+  --max-steps 1500 `
+  --timing-mode light `
+  --profile-stride 50
+```
+
+4. Analyze bottleneck shares:
 
 ```powershell
 python tests/tester/perf_bottleneck/analyze_bottleneck.py `
@@ -56,4 +82,4 @@ python tests/tester/perf_bottleneck/analyze_bottleneck.py `
 - Discard warmup steps (`--warmup-steps`) before making conclusions.
 - Ensure timestamp coverage in step metrics for reliable correlation results.
 - If quality fields show high parse error rate or low coverage, re-run before strategy decisions.
-
+- `timing_mode=probe` only marks every `profile_stride` step as probe; non-sampled steps stay `light`.
