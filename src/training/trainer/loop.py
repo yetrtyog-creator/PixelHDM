@@ -250,7 +250,7 @@ class TrainingLoop:
         data_iter: Iterator[Dict[str, Any]],
         total_steps: int,
         pbar: Optional[Any],
-        train_step_fn: Callable[[Dict[str, Any]], TrainMetrics],
+        train_step_fn: Callable[[Dict[str, Any] | list[Dict[str, Any]]], TrainMetrics],
         save_checkpoint_fn: Callable[..., None],
         log_interval: int,
         save_interval: int,

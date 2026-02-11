@@ -100,8 +100,8 @@ class Trainer:
         it must be synchronized to the current training step to ensure
         correct learning rate calculation.
 
-        IMPORTANT: state.step is batch steps, but scheduler expects optimizer steps.
-        optimizer_steps = batch_steps / gradient_accumulation_steps
+        IMPORTANT: state.step uses optimizer-step semantics.
+        Scheduler sync should use state.step directly.
         """
         if self._lr_scheduler is None:
             self._lr_scheduler = create_lr_scheduler(
@@ -173,7 +173,7 @@ class Trainer:
             param.requires_grad = False
         self._step_executor.text_encoder = self.text_encoder
 
-    def train_step(self, batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+    def train_step(self, batch: Dict[str, torch.Tensor] | list[Dict[str, torch.Tensor]]) -> TrainMetrics:
         """Execute single training step."""
         warmup_steps = self.training_config.warmup_steps if self.training_config else 0
         if isinstance(batch, list):
