@@ -5,7 +5,7 @@ from __future__ import annotations
 import queue
 import threading
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Callable, Iterable, Iterator, Optional
 
 
 @dataclass(frozen=True)
@@ -56,12 +56,19 @@ _END = object()
 
 
 class _ThreadPrefetchIterator:
-    def __init__(self, source: Iterable[Any], buffer_items: int, name: str) -> None:
+    def __init__(
+        self,
+        source: Iterable[Any],
+        buffer_items: int,
+        name: str,
+        on_close: Optional[Callable[["_ThreadPrefetchIterator"], None]] = None,
+    ) -> None:
         self._source_iter = iter(source)
         self._queue: queue.Queue[Any] = queue.Queue(maxsize=max(1, int(buffer_items)))
         self._stop_event = threading.Event()
         self._closed = False
         self._ended = False
+        self._on_close = on_close
         self._thread = threading.Thread(
             target=self._producer_loop,
             name=f"train-prefetch-producer-{name}",
@@ -118,6 +125,10 @@ class _ThreadPrefetchIterator:
         self._stop_event.set()
         if self._thread.is_alive():
             self._thread.join(timeout=1.0)
+        if self._on_close is not None:
+            cb = self._on_close
+            self._on_close = None
+            cb(self)
 
     def __del__(self) -> None:  # pragma: no cover - GC timing is non-deterministic.
         self.close()
@@ -129,26 +140,37 @@ class ThreadPrefetchDataLoader:
     def __init__(self, dataloader: Any, buffer_items: int) -> None:
         self._dataloader = dataloader
         self._buffer_items = max(1, int(buffer_items))
-        self._active_iters: list[_ThreadPrefetchIterator] = []
+        self._active_iter: Optional[_ThreadPrefetchIterator] = None
         self._iter_count = 0
 
     def __len__(self) -> int:
         return len(self._dataloader)
 
     def __iter__(self) -> Iterator[Any]:
+        # Training loop can re-create iterators before exhaustion
+        # (e.g., drop_last_accumulation boundary). Always close stale iterator
+        # to prevent background producer/thread buildup.
+        if self._active_iter is not None:
+            self._active_iter.close()
+            self._active_iter = None
         self._iter_count += 1
         it = _ThreadPrefetchIterator(
             source=self._dataloader,
             buffer_items=self._buffer_items,
             name=str(self._iter_count),
+            on_close=self._on_iter_closed,
         )
-        self._active_iters.append(it)
+        self._active_iter = it
         return it
 
+    def _on_iter_closed(self, it: _ThreadPrefetchIterator) -> None:
+        if self._active_iter is it:
+            self._active_iter = None
+
     def close(self) -> None:
-        for it in self._active_iters:
-            it.close()
-        self._active_iters.clear()
+        if self._active_iter is not None:
+            self._active_iter.close()
+            self._active_iter = None
 
     @property
     def dataset(self) -> Any:
@@ -156,4 +178,3 @@ class ThreadPrefetchDataLoader:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._dataloader, name)
-

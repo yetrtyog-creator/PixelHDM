@@ -104,3 +104,20 @@ def test_thread_prefetch_loader_surfaces_producer_error() -> None:
     finally:
         wrapped.close()
 
+
+def test_thread_prefetch_reiter_closes_stale_iterator() -> None:
+    wrapped = ThreadPrefetchDataLoader(_DummyLoader(20), buffer_items=2)
+    try:
+        it1 = iter(wrapped)
+        assert next(it1)["value"] == 0
+        assert wrapped._active_iter is it1
+
+        it2 = iter(wrapped)
+        assert wrapped._active_iter is it2
+        assert it1._closed is True
+
+        rows = [row["value"] for row in it2]
+        assert rows[0] == 0
+        assert rows[-1] == 19
+    finally:
+        wrapped.close()
