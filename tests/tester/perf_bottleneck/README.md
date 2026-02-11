@@ -71,6 +71,32 @@ python tests/tester/perf_bottleneck/analyze_bottleneck.py `
   --print-summary
 ```
 
+## Thread Prefetch Buffer (Producer/Consumer)
+
+Use test-side thread prefetch (no src changes):
+
+```powershell
+python tests/tester/perf_bottleneck/run_instrumented_training.py `
+  --config configs/train_config.yaml `
+  --run-id prefetch2x_s42 `
+  --profile-root logs/profiling `
+  --max-steps 120 `
+  --enable-thread-prefetch `
+  --prefetch-buffer-multiplier 2
+```
+
+Try larger buffer:
+
+```powershell
+python tests/tester/perf_bottleneck/run_instrumented_training.py `
+  --config configs/train_config.yaml `
+  --run-id prefetch4x_s42 `
+  --profile-root logs/profiling `
+  --max-steps 120 `
+  --enable-thread-prefetch `
+  --prefetch-buffer-multiplier 4
+```
+
 ## Output Files
 
 - `bottleneck_summary.json`: Full machine-readable results.

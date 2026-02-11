@@ -35,6 +35,7 @@ from tests.tester.perf_bottleneck.runtime_instrumentation import (
     RuntimeHookSession,
     StepMetricsCollector,
 )
+from tests.tester.perf_bottleneck.prefetch_buffer import ThreadPrefetchDataLoader
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -75,6 +76,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-every-epochs", type=int, default=None)
     parser.add_argument("--gc-interval", type=int, default=100)
     parser.add_argument("--pin-memory", type=parse_bool, default=None)
+    parser.add_argument("--grad-accumulation-steps", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--disable-bucketing", action="store_true")
+    parser.add_argument("--single-bucket-resolution", type=int, default=None)
+    parser.add_argument("--fixed-resolution", type=int, default=None)
+    parser.add_argument("--disable-random-augment", action="store_true")
+    parser.add_argument("--disable-text-encoder", action="store_true")
+    parser.add_argument("--disable-repa", action="store_true")
+    parser.add_argument("--enable-thread-prefetch", action="store_true")
+    parser.add_argument("--prefetch-buffer-multiplier", type=int, default=2)
+    parser.add_argument("--prefetch-buffer-items", type=int, default=None)
+    parser.add_argument("--save-final-checkpoint", action="store_true")
     parser.add_argument("--use-progress-bar", action="store_true")
     return parser.parse_args()
 
@@ -185,6 +198,18 @@ def _write_run_metadata(
         "num_epochs": args.num_epochs,
         "gc_interval": int(args.gc_interval),
         "pin_memory_override": args.pin_memory,
+        "grad_accumulation_steps_override": args.grad_accumulation_steps,
+        "batch_size_override": args.batch_size,
+        "disable_bucketing": bool(args.disable_bucketing),
+        "single_bucket_resolution": args.single_bucket_resolution,
+        "fixed_resolution": args.fixed_resolution,
+        "disable_random_augment": bool(args.disable_random_augment),
+        "disable_text_encoder": bool(args.disable_text_encoder),
+        "disable_repa": bool(args.disable_repa),
+        "enable_thread_prefetch": bool(args.enable_thread_prefetch),
+        "prefetch_buffer_multiplier": int(args.prefetch_buffer_multiplier),
+        "prefetch_buffer_items": args.prefetch_buffer_items,
+        "save_final_checkpoint": bool(args.save_final_checkpoint),
         "checkpoint_dir": str(checkpoint_dir),
         "step_metrics_path": str(step_metrics_path),
     }
@@ -224,6 +249,34 @@ def main() -> None:
 
     if args.pin_memory is not None:
         data_config.pin_memory = bool(args.pin_memory)
+    if args.grad_accumulation_steps is not None:
+        training_config.gradient_accumulation_steps = max(1, int(args.grad_accumulation_steps))
+    if args.batch_size is not None:
+        training_config.batch_size = max(1, int(args.batch_size))
+    if args.disable_bucketing:
+        data_config.use_bucketing = False
+    if args.single_bucket_resolution is not None:
+        sres = int(args.single_bucket_resolution)
+        data_config.use_bucketing = True
+        data_config.min_bucket_size = sres
+        data_config.max_bucket_size = sres
+        data_config.target_pixels = sres * sres
+        data_config.max_aspect_ratio = 1.0
+    if args.fixed_resolution is not None:
+        fixed_res = int(args.fixed_resolution)
+        data_config.image_size = fixed_res
+        data_config.min_bucket_size = fixed_res
+        data_config.max_bucket_size = fixed_res
+        data_config.target_pixels = fixed_res * fixed_res
+    if args.disable_random_augment:
+        data_config.use_random_crop = False
+        data_config.random_flip = False
+    if args.disable_text_encoder:
+        model_config.text_encoder_name = ""
+        model_config.text_encoder_frozen = True
+        model_config.cfg_dropout = 0.0
+    if args.disable_repa:
+        model_config.repa_enabled = False
     if args.log_interval is not None:
         training_config.log_interval = int(args.log_interval)
     if args.save_interval is not None:
@@ -232,6 +285,8 @@ def main() -> None:
         training_config.save_every_epochs = int(args.save_every_epochs)
     if args.log_every_epochs is not None:
         training_config.log_every_epochs = int(args.log_every_epochs)
+    if not args.save_final_checkpoint:
+        training_config.checkpoint_dir = None
 
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
@@ -245,6 +300,22 @@ def main() -> None:
     logger.info("Creating dataloader...")
     train_dataloader = create_dataloader_from_config(data_config, model_config, training_config)
     logger.info("Training samples: %s", f"{len(train_dataloader.dataset):,}")
+    if args.enable_thread_prefetch:
+        base_items = max(1, int(training_config.gradient_accumulation_steps)) * max(
+            1, int(args.prefetch_buffer_multiplier)
+        )
+        buffer_items = (
+            max(1, int(args.prefetch_buffer_items))
+            if args.prefetch_buffer_items is not None
+            else base_items
+        )
+        train_dataloader = ThreadPrefetchDataLoader(train_dataloader, buffer_items=buffer_items)
+        logger.info(
+            "Thread prefetch enabled: buffer_items=%d (grad_accum=%d, multiplier=%d)",
+            buffer_items,
+            int(training_config.gradient_accumulation_steps),
+            int(args.prefetch_buffer_multiplier),
+        )
 
     text_encoder = _load_text_encoder(model_config, device)
     trainer = Trainer(
@@ -289,6 +360,7 @@ def main() -> None:
             loop_cls=TrainingLoop,
             step_executor_cls=StepExecutor,
         ):
+            save_path = checkpoint_dir if args.save_final_checkpoint else None
             trainer.train(
                 num_steps=num_steps,
                 num_epochs=num_epochs,
@@ -297,7 +369,7 @@ def main() -> None:
                 save_every_epochs=training_config.save_every_epochs,
                 log_every_epochs=training_config.log_every_epochs,
                 gc_interval=int(args.gc_interval),
-                save_path=checkpoint_dir,
+                save_path=save_path,
                 callback=_callback,
                 use_progress_bar=bool(args.use_progress_bar),
             )
@@ -306,6 +378,8 @@ def main() -> None:
         trainer.save_checkpoint(checkpoint_dir)
     finally:
         collector.close()
+        if hasattr(train_dataloader, "close"):
+            train_dataloader.close()
         if device.type == "cuda":
             import gc
 
@@ -319,4 +393,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

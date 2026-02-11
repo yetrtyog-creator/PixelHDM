@@ -68,6 +68,7 @@ class StepSlice:
     fwd_bwd_ms: float = 0.0
     opt_ms: float = 0.0
     gc_ms: float = 0.0
+    text_encode_ms: float = 0.0
     oom_retry_count: int = 0
 
 
@@ -179,6 +180,10 @@ class StepMetricsCollector:
         slot = self._ensure_step(step)
         slot.gc_ms += float(elapsed_ms)
 
+    def record_text_encode(self, *, step: int, elapsed_ms: float) -> None:
+        slot = self._ensure_step(step)
+        slot.text_encode_ms += float(elapsed_ms)
+
     def finalize_step(
         self,
         *,
@@ -219,6 +224,7 @@ class StepMetricsCollector:
             "fwd_bwd_ms": slot.fwd_bwd_ms,
             "opt_ms": slot.opt_ms,
             "gc_ms": slot.gc_ms,
+            "text_encode_ms": slot.text_encode_ms,
             "step_time_ms": step_time_ms,
             "samples_per_sec": _to_float(getattr(metrics, "samples_per_sec", None), default=0.0),
             "loss_total": _to_float(getattr(metrics, "loss", None), default=0.0),
@@ -338,6 +344,24 @@ class RuntimeHookSession:
 
         self._patch(self.step_executor_cls, "_prepare_batch", wrapped_prepare_batch)
 
+        if hasattr(self.step_executor_cls, "_encode_captions"):
+            orig_encode_captions = getattr(self.step_executor_cls, "_encode_captions")
+
+            @wraps(orig_encode_captions)
+            def wrapped_encode_captions(step_self, *args, **kwargs):
+                active_step = getattr(step_self, "_perf_trace_active_step", None)
+                if isinstance(active_step, int):
+                    collector.sync_cuda_if_needed(active_step)
+                t0 = time.perf_counter_ns()
+                out = orig_encode_captions(step_self, *args, **kwargs)
+                elapsed_ms = (time.perf_counter_ns() - t0) / 1_000_000.0
+                if isinstance(active_step, int):
+                    collector.sync_cuda_if_needed(active_step)
+                    collector.record_text_encode(step=active_step, elapsed_ms=elapsed_ms)
+                return out
+
+            self._patch(self.step_executor_cls, "_encode_captions", wrapped_encode_captions)
+
         orig_forward = getattr(self.step_executor_cls, "_forward")
 
         @wraps(orig_forward)
@@ -396,4 +420,3 @@ class RuntimeHookSession:
         for (cls, method_name), original in self._originals.items():
             setattr(cls, method_name, original)
         self._originals.clear()
-
