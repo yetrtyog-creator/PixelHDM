@@ -100,6 +100,11 @@ def get_timesteps(
     # Rescale to [t_eps, 1-t_eps] range.
     t = t_eps + (1 - 2 * t_eps) * t
 
+    if shift_config is not None and num_tokens is None:
+        logger.warning(
+            "Dynamic timestep shift is configured but num_tokens is None; skipping DTS."
+        )
+
     if num_tokens is not None and shift_config is not None:
         allowed_keys = {
             "shift_type",
@@ -117,10 +122,16 @@ def get_timesteps(
                 sorted(extra_keys),
             )
         shift_type = shift_config.get("shift_type", "exponential")
+        fixed_shift = float(shift_config.get("fixed_shift", 3.0))
+        if shift_type == "exponential" and abs(fixed_shift - 1.0) < 1e-8:
+            logger.warning(
+                "DTS is enabled but fixed_shift=1.0 results in no shift "
+                "(factor=1.0 everywhere). Consider fixed_shift > 1.0."
+            )
         mu = compute_timestep_shift_mu(
             num_tokens=num_tokens,
             shift_type=shift_type,
-            fixed_shift=float(shift_config.get("fixed_shift", 3.0)),
+            fixed_shift=fixed_shift,
             base_shift=float(shift_config.get("base_shift", 0.5)),
             max_shift=float(shift_config.get("max_shift", 1.15)),
             base_seq_len=int(shift_config.get("base_seq_len", 256)),

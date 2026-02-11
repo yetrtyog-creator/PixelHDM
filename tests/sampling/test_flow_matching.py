@@ -534,7 +534,7 @@ class TestFactoryFunctions:
         assert isinstance(fm, PixelHDMFlowMatching)
         assert fm.p_mean == 0.0  # SD3/PixelHDM default
         assert fm.p_std == 1.0   # SD3/PixelHDM default
-        assert fm.t_eps == 0.05
+        assert fm.t_eps == 0.0001
 
     def test_create_flow_matching_custom(self):
         """Test create_flow_matching with custom params."""
@@ -551,7 +551,7 @@ class TestFactoryFunctions:
         assert isinstance(sampler, PixelHDMSampler)
         assert sampler.num_steps == 50
         assert sampler.method == "heun"
-        assert sampler.t_eps == 0.05
+        assert sampler.t_eps == 0.0001
 
     def test_create_sampler_euler(self):
         """Test create_sampler with euler method."""

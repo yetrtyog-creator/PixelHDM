@@ -338,7 +338,7 @@ class TestCombinedLoss:
             step=0,
         )
 
-        required_keys = {"total", "vloss", "freq_loss", "repa_loss"}
+        required_keys = {"total", "vloss", "freq_loss", "repa_loss", "gamma_l2"}
         assert set(result.keys()) == required_keys, \
             f"Output keys {set(result.keys())} != expected {required_keys}"
 

@@ -186,13 +186,13 @@ class TestUnifiedSamplerInterface:
         """Test NFE count for Heun sampler."""
         sampler = create_sampler(method="heun", num_steps=50)
 
-        # Heun: 2 evaluations per step
+        # Heun with last-step Euler optimization: 2N - 1 evaluations
         nfe_no_cfg = sampler.count_nfe(use_cfg=False)
-        assert nfe_no_cfg == 2 * 50  # 100
+        assert nfe_no_cfg == 2 * 50 - 1  # 99
 
-        # With CFG: doubles evaluations
+        # With CFG: doubles base NFE
         nfe_with_cfg = sampler.count_nfe(use_cfg=True)
-        assert nfe_with_cfg == 50 * 4  # 200
+        assert nfe_with_cfg == (2 * 50 - 1) * 2  # 198
 
         # With full Heun CFG: doubles base NFE
         nfe_full_heun = sampler.count_nfe(use_cfg=True, full_heun_cfg=True)
