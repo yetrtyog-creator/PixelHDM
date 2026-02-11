@@ -326,6 +326,45 @@ training:
         assert config.training.zclip_threshold == 1.5
 
 
+class TestCPUCheckpointConfigParsing:
+    """Test CPU checkpoint configuration parsing from training section."""
+
+    def test_cpu_checkpoint_disabled(self, tmp_path: Path):
+        """enabled=false should disable runtime CPU checkpointing."""
+        yaml_content = """
+training:
+  cpu_checkpoint:
+    enabled: false
+    save_interval: 500
+    spike_threshold: 7.5
+"""
+        config_file = tmp_path / "test_config.yaml"
+        config_file.write_text(yaml_content, encoding="utf-8")
+
+        config = Config.from_yaml(str(config_file))
+
+        # disabled takes precedence over save_interval
+        assert config.training.cpu_checkpoint_interval == 0
+        assert config.training.cpu_checkpoint_spike_threshold == 7.5
+
+    def test_cpu_checkpoint_enabled_with_custom_interval(self, tmp_path: Path):
+        """enabled=true should honor custom save_interval and threshold."""
+        yaml_content = """
+training:
+  cpu_checkpoint:
+    enabled: true
+    save_interval: 500
+    spike_threshold: 6.0
+"""
+        config_file = tmp_path / "test_config.yaml"
+        config_file.write_text(yaml_content, encoding="utf-8")
+
+        config = Config.from_yaml(str(config_file))
+
+        assert config.training.cpu_checkpoint_interval == 500
+        assert config.training.cpu_checkpoint_spike_threshold == 6.0
+
+
 class TestDataConfigReference:
     """Test external data configuration reference mechanism."""
 

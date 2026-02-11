@@ -513,6 +513,23 @@ data:
         assert config.data.image_size == 256
         assert config.data.num_workers == 0
 
+    def test_config_from_yaml_cpu_checkpoint_disabled(self, tmp_path):
+        """Test training.cpu_checkpoint.enabled=false disables CPU checkpoint."""
+        yaml_content = """
+training:
+  cpu_checkpoint:
+    enabled: false
+    save_interval: 500
+    spike_threshold: 7.0
+"""
+        yaml_path = tmp_path / "test_config.yaml"
+        yaml_path.write_text(yaml_content, encoding="utf-8")
+
+        config = Config.from_yaml(str(yaml_path))
+
+        assert config.training.cpu_checkpoint_interval == 0
+        assert config.training.cpu_checkpoint_spike_threshold == 7.0
+
     def test_config_from_yaml_file_not_found(self):
         """Test Config.from_yaml() raises on missing file."""
         import pytest

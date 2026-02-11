@@ -67,6 +67,7 @@ def parse_training_config(data: dict) -> TrainingConfig:
     _parse_optimizer_section(train_data, flat)
     _parse_gradient_section(train_data, flat)
     _parse_ema_section(train_data, flat)
+    _parse_cpu_checkpoint_section(train_data, flat)
     _parse_lr_schedule_section(train_data, flat)
     _parse_output_section(output_data, flat)
 
@@ -127,6 +128,24 @@ def _parse_ema_section(train_data: dict, flat: dict) -> None:
         flat["ema_enabled"] = ema["enabled"]
     if "decay" in ema:
         flat["ema_decay"] = ema["decay"]
+
+
+def _parse_cpu_checkpoint_section(train_data: dict, flat: dict) -> None:
+    """Parse CPU checkpoint section."""
+    cpu_ckpt = train_data.get("cpu_checkpoint", {})
+    if not isinstance(cpu_ckpt, dict):
+        return
+
+    enabled = cpu_ckpt.get("enabled")
+
+    # enabled=false takes precedence and hard-disables runtime CPU checkpoints.
+    if enabled is False:
+        flat["cpu_checkpoint_interval"] = 0
+    elif "save_interval" in cpu_ckpt:
+        flat["cpu_checkpoint_interval"] = cpu_ckpt["save_interval"]
+
+    if "spike_threshold" in cpu_ckpt:
+        flat["cpu_checkpoint_spike_threshold"] = cpu_ckpt["spike_threshold"]
 
 
 def _parse_lr_schedule_section(train_data: dict, flat: dict) -> None:
