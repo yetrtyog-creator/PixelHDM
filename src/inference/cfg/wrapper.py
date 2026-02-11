@@ -52,6 +52,8 @@ class CFGWrapper(nn.Module):
         t: torch.Tensor,
         text_embed: Optional[torch.Tensor] = None,
         null_text_embed: Optional[torch.Tensor] = None,
+        text_mask: Optional[torch.Tensor] = None,
+        null_text_mask: Optional[torch.Tensor] = None,
         guidance_scale: Optional[float] = None,
         step: Optional[int] = None,
         total_steps: Optional[int] = None,
@@ -65,6 +67,8 @@ class CFGWrapper(nn.Module):
             t: Timestep
             text_embed: Conditional text embedding
             null_text_embed: Unconditional text embedding
+            text_mask: Attention mask for conditional text (#10 fix)
+            null_text_mask: Attention mask for unconditional text (#10 fix)
             guidance_scale: CFG weight (overrides default)
             step: Current step (for scheduling)
             total_steps: Total steps (for scheduling)
@@ -76,10 +80,12 @@ class CFGWrapper(nn.Module):
         guidance_scale = self._get_guidance_scale(guidance_scale, t, step, total_steps)
 
         if guidance_scale == 1.0 or null_text_embed is None:
-            return self.model(x_t, t, text_embed=text_embed, **kwargs)
+            return self.model(x_t, t, text_embed=text_embed, text_mask=text_mask, **kwargs)
 
-        x_cond = self.model(x_t, t, text_embed=text_embed, **kwargs)
-        x_uncond = self.model(x_t, t, text_embed=null_text_embed, **kwargs)
+        # Conditional branch with text_mask
+        x_cond = self.model(x_t, t, text_embed=text_embed, text_mask=text_mask, **kwargs)
+        # Unconditional branch with null_text_mask (#10 fix)
+        x_uncond = self.model(x_t, t, text_embed=null_text_embed, text_mask=null_text_mask, **kwargs)
 
         return self.cfg_method.apply(x_cond, x_uncond, guidance_scale)
 

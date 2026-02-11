@@ -45,6 +45,11 @@ class PixelHDMPipelineForImg2Img(PixelHDMPipeline):
         seed: Optional[int] = None,
         sampler_method: str = "heun",
         output_type: str = "pil",
+        guidance_rescale: float = 0.0,
+        use_dynamic_cfg: bool = False,
+        cfg_schedule: str = "constant",
+        cfg_min_scale: float = 1.0,
+        cfg_max_scale: Optional[float] = None,
         **kwargs,
     ) -> PipelineOutput:
         """
@@ -60,6 +65,11 @@ class PixelHDMPipelineForImg2Img(PixelHDMPipeline):
             seed: Random seed
             sampler_method: Sampling method
             output_type: Output format
+            guidance_rescale: CFG rescale factor
+            use_dynamic_cfg: Enable dynamic CFG scheduling
+            cfg_schedule: CFG schedule type (linear/cosine/quadratic/constant)
+            cfg_min_scale: Minimum CFG scale for scheduling
+            cfg_max_scale: Maximum CFG scale for scheduling
             **kwargs: Additional arguments
 
         Returns:
@@ -80,15 +90,23 @@ class PixelHDMPipelineForImg2Img(PixelHDMPipeline):
         prompts = self._validator.validate_prompt(prompt)
         batch_size = len(prompts)
 
-        # Expand image batch if needed
-        if image_tensor.shape[0] == 1 and batch_size > 1:
+        # Validate batch sizes match (#17 fix)
+        image_batch_size = image_tensor.shape[0]
+        if image_batch_size != batch_size and image_batch_size != 1:
+            raise ValueError(
+                f"Image batch size ({image_batch_size}) must match prompt batch size "
+                f"({batch_size}) or be 1 for broadcasting"
+            )
+
+        # Expand image batch if needed (single image to multiple prompts)
+        if image_batch_size == 1 and batch_size > 1:
             image_tensor = image_tensor.expand(batch_size, -1, -1, -1)
 
         # Setup generator
         generator = self._create_generator(seed)
 
         # Encode prompts
-        text_embed, text_mask, pooled_embed, null_embed, null_mask, null_pooled = self._preprocessor.encode_prompt(
+        text_embed, text_mask, null_embed, null_mask = self._preprocessor.encode_prompt(
             prompts, negative_prompt, num_images_per_prompt=1
         )
 
@@ -107,8 +125,12 @@ class PixelHDMPipelineForImg2Img(PixelHDMPipeline):
             guidance_scale=guidance_scale,
             t_start=t_start,
             sampler_method=sampler_method,
-            pooled_text_embed=pooled_embed,
-            null_pooled_text_embed=null_pooled,
+            null_text_mask=null_mask,
+            guidance_rescale=guidance_rescale,
+            use_dynamic_cfg=use_dynamic_cfg,
+            cfg_schedule=cfg_schedule,
+            cfg_min_scale=cfg_min_scale,
+            cfg_max_scale=cfg_max_scale,
         )
 
         # Postprocess and return
@@ -158,6 +180,11 @@ class PixelHDMPipelineForImg2Img(PixelHDMPipeline):
 
         # Align to patch size
         w, h = image.size
+        if w < patch_size or h < patch_size:
+            raise ValueError(
+                f"Image size ({w}x{h}) is smaller than patch_size ({patch_size}). "
+                f"Minimum supported size is {patch_size}x{patch_size}."
+            )
         new_w = (w // patch_size) * patch_size
         new_h = (h // patch_size) * patch_size
 
@@ -181,7 +208,7 @@ class PixelHDMPipelineForImg2Img(PixelHDMPipeline):
     ) -> tuple:
         """Add noise to image based on strength."""
         # Get t_eps from config or use default
-        t_eps = 0.05
+        t_eps = 0.0001
         if self.config is not None:
             t_eps = self.config.time_eps
 

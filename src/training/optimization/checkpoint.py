@@ -22,6 +22,7 @@ import torch.nn as nn
 
 if TYPE_CHECKING:
     from .ema import EMA
+    from torch.cuda.amp import GradScaler
 
 
 @dataclass
@@ -66,6 +67,7 @@ class CPUMemoryCheckpoint:
         self._cpu_model_state: Optional[Dict[str, torch.Tensor]] = None
         self._cpu_optimizer_state: Optional[Dict[str, Any]] = None
         self._cpu_ema_state: Optional[Dict[str, torch.Tensor]] = None
+        self._cpu_scaler_state: Optional[Dict[str, Any]] = None
 
         # 追蹤信息
         self._last_loss: Optional[float] = None
@@ -79,6 +81,7 @@ class CPUMemoryCheckpoint:
         ema: Optional["EMA"],
         loss: float,
         global_step: int,
+        scaler: Optional["GradScaler"] = None,
     ) -> bool:
         """
         每訓練步調用一次
@@ -89,6 +92,7 @@ class CPUMemoryCheckpoint:
             ema: EMA 實例
             loss: 當前步的 loss 值
             global_step: 全局步數
+            scaler: GradScaler 實例 (用於 fp16 訓練)
 
         Returns:
             是否執行了恢復操作
@@ -101,7 +105,7 @@ class CPUMemoryCheckpoint:
 
         # 定期保存
         if global_step % self.save_interval == 0:
-            self._save(model, optimizer, ema)
+            self._save(model, optimizer, ema, scaler)
             self._last_save_step = global_step
 
         # Loss spike 檢測
@@ -113,7 +117,7 @@ class CPUMemoryCheckpoint:
                     category=UserWarning,
                 )
 
-                if self._restore(model, optimizer, ema):
+                if self._restore(model, optimizer, ema, scaler):
                     self._restore_count += 1
                     restored = True
 
@@ -125,6 +129,7 @@ class CPUMemoryCheckpoint:
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
         ema: Optional["EMA"],
+        scaler: Optional["GradScaler"] = None,
     ) -> None:
         """保存狀態到 CPU RAM"""
         self._cpu_model_state = {
@@ -138,11 +143,16 @@ class CPUMemoryCheckpoint:
                 k: v.cpu().clone() for k, v in ema.shadow.items()
             }
 
+        # Save GradScaler state for fp16 training
+        if scaler is not None:
+            self._cpu_scaler_state = scaler.state_dict()
+
     def _restore(
         self,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
         ema: Optional["EMA"],
+        scaler: Optional["GradScaler"] = None,
     ) -> bool:
         """從 CPU RAM 恢復狀態"""
         if self._cpu_model_state is None:
@@ -156,13 +166,30 @@ class CPUMemoryCheckpoint:
 
         if self._cpu_optimizer_state is not None:
             optimizer.load_state_dict(self._cpu_optimizer_state)
+            # Move optimizer state tensors back to the correct device
+            self._move_optimizer_state_to_device(optimizer, device)
 
         if ema is not None and self._cpu_ema_state is not None:
             ema.shadow = {
                 k: v.to(device) for k, v in self._cpu_ema_state.items()
             }
 
+        # Restore GradScaler state for fp16 training
+        if scaler is not None and self._cpu_scaler_state is not None:
+            scaler.load_state_dict(self._cpu_scaler_state)
+
         return True
+
+    def _move_optimizer_state_to_device(
+        self,
+        optimizer: torch.optim.Optimizer,
+        device: torch.device,
+    ) -> None:
+        """Move optimizer state tensors to the specified device."""
+        for state in optimizer.state.values():
+            for key, value in state.items():
+                if torch.is_tensor(value):
+                    state[key] = value.to(device)
 
     def _copy_optimizer_state(
         self,
@@ -196,6 +223,7 @@ class CPUMemoryCheckpoint:
         self._cpu_model_state = None
         self._cpu_optimizer_state = None
         self._cpu_ema_state = None
+        self._cpu_scaler_state = None
 
     def state_dict(self) -> Dict[str, Any]:
         """獲取狀態字典"""

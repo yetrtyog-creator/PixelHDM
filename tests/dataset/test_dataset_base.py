@@ -33,6 +33,7 @@ from src.training.dataset.base import (
     BaseImageTextDataset,
     find_images,
 )
+from src.training.dataset.constants import IMAGE_EXTENSIONS as IMAGE_EXTENSIONS_CONST
 
 
 # ============================================================================
@@ -94,6 +95,10 @@ class TestImageExtensions:
         common = {".jpg", ".jpeg", ".png", ".webp"}
         for ext in common:
             assert ext in IMAGE_EXTENSIONS, f"{ext} should be in IMAGE_EXTENSIONS"
+
+    def test_extensions_shared_constant(self):
+        """IMAGE_EXTENSIONS should be imported from shared constants."""
+        assert IMAGE_EXTENSIONS is IMAGE_EXTENSIONS_CONST
 
 
 # ============================================================================

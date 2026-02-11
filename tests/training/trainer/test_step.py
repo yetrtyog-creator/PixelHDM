@@ -94,6 +94,32 @@ class MockFlowMatching:
         return t, z_t, x_clean, noise
 
 
+class MockTextEncoder:
+    """Mock text encoder that returns deterministic embeddings."""
+
+    def __init__(self, seq_len: int = 8, hidden_dim: int = 64):
+        self.seq_len = seq_len
+        self.hidden_dim = hidden_dim
+
+    def __call__(self, texts, return_pooled: bool = False):
+        batch_size = len(texts)
+        fill_value = 0.0 if all(text == "" for text in texts) else 1.0
+        hidden_states = torch.full(
+            (batch_size, self.seq_len, self.hidden_dim),
+            fill_value,
+        )
+        mask = torch.ones(batch_size, self.seq_len)
+        return hidden_states, mask
+
+
+class MockConfig:
+    """Mock config with cfg_dropout controls."""
+
+    def __init__(self, cfg_dropout: float, text_encoder_frozen: bool = True):
+        self.cfg_dropout = cfg_dropout
+        self.text_encoder_frozen = text_encoder_frozen
+
+
 class MockCombinedLoss(nn.Module):
     """Mock combined loss for testing."""
 
@@ -110,6 +136,7 @@ class MockCombinedLoss(nn.Module):
         x_clean: torch.Tensor,
         noise: torch.Tensor,
         h_t: Optional[torch.Tensor] = None,
+        gamma_l2: Optional[torch.Tensor] = None,
         step: int = 0,
     ) -> Dict[str, torch.Tensor]:
         self.forward_called = True
@@ -118,6 +145,7 @@ class MockCombinedLoss(nn.Module):
             "x_clean": x_clean,
             "noise": noise,
             "h_t": h_t,
+            "gamma_l2": gamma_l2,
             "step": step,
         }
 
@@ -141,6 +169,9 @@ class MockZClip:
     def __init__(self):
         self.last_grad_norm = 1.0
 
+    def __call__(self, total_norm: float) -> float:
+        return float(total_norm)
+
     def clip_gradients(self, parameters, max_norm: float) -> float:
         self.last_grad_norm = torch.nn.utils.clip_grad_norm_(parameters, max_norm)
         return float(self.last_grad_norm)
@@ -152,6 +183,9 @@ def create_step_executor(
     gradient_accumulation_steps: int = 1,
     return_repa: bool = False,
     return_freq: bool = False,
+    text_encoder: Optional[nn.Module] = None,
+    config: Optional[object] = None,
+    cpu_checkpoint: Optional[object] = None,
 ) -> Tuple[StepExecutor, MockModel]:
     """Create a StepExecutor with mock components for testing."""
     if model is None:
@@ -174,9 +208,9 @@ def create_step_executor(
         amp_dtype=torch.float32,
         scaler=None,
         ema=None,
-        cpu_checkpoint=None,
-        text_encoder=None,
-        config=None,
+        cpu_checkpoint=cpu_checkpoint,
+        text_encoder=text_encoder,
+        config=config,
         gradient_accumulation_steps=gradient_accumulation_steps,
         max_grad_norm=1.0,
     )
@@ -191,6 +225,8 @@ def create_batch(
     channels: int = 3,
     include_text: bool = False,
     include_pooled: bool = False,
+    seq_len: int = 16,
+    text_hidden_dim: int = 64,
 ) -> Dict[str, torch.Tensor]:
     """Create a mock batch for testing."""
     batch = {
@@ -198,9 +234,7 @@ def create_batch(
     }
 
     if include_text:
-        seq_len = 16
-        hidden_dim = 64
-        batch["text_embeddings"] = torch.randn(batch_size, seq_len, hidden_dim)
+        batch["text_embeddings"] = torch.randn(batch_size, seq_len, text_hidden_dim)
         batch["text_mask"] = torch.ones(batch_size, seq_len)
 
     if include_pooled:
@@ -238,13 +272,109 @@ class TestStepForwardPass:
 
         # Verify loss is a valid number
         assert isinstance(metrics.loss, float)
-        assert not torch.isnan(torch.tensor(metrics.loss))
-        assert not torch.isinf(torch.tensor(metrics.loss))
+
+
+# ============================================================================
+# CFG Dropout Tests
+# ============================================================================
+
+
+class TestCfgDropout:
+    """Tests for cfg_dropout behavior in StepExecutor."""
+
+    def test_cfg_dropout_disabled_keeps_embeddings(self):
+        """cfg_dropout=0.0 should not alter embeddings."""
+        text_encoder = MockTextEncoder(seq_len=8, hidden_dim=64)
+        config = MockConfig(cfg_dropout=0.0)
+        executor, _ = create_step_executor(text_encoder=text_encoder, config=config)
+
+        batch = create_batch(include_text=True, seq_len=8, text_hidden_dim=64)
+        _, text_embeddings, _ = executor._prepare_batch(batch)
+
+        assert torch.allclose(text_embeddings, batch["text_embeddings"])
+
+    def test_cfg_dropout_full_replaces_with_null(self):
+        """cfg_dropout=1.0 should replace all embeddings with null."""
+        text_encoder = MockTextEncoder(seq_len=8, hidden_dim=64)
+        config = MockConfig(cfg_dropout=1.0)
+        executor, _ = create_step_executor(text_encoder=text_encoder, config=config)
+
+        batch = create_batch(include_text=True, seq_len=8, text_hidden_dim=64)
+        _, text_embeddings, text_mask = executor._prepare_batch(batch)
+
+        assert torch.all(text_embeddings == 0.0)
+        assert text_mask.dtype == torch.bool
+
+    def test_cfg_dropout_requires_text_encoder(self):
+        """cfg_dropout > 0 without text_encoder should raise."""
+        config = MockConfig(cfg_dropout=0.5)
+        executor, _ = create_step_executor(text_encoder=None, config=config)
+
+        batch = create_batch(include_text=True)
+        with pytest.raises(ValueError, match="text_encoder"):
+            executor._prepare_batch(batch)
+
+    def test_cfg_dropout_requires_text_embeddings(self):
+        """cfg_dropout > 0 without embeddings should raise."""
+        config = MockConfig(cfg_dropout=0.5)
+        executor, _ = create_step_executor(text_encoder=None, config=config)
+
+        batch = create_batch(include_text=False)
+        with pytest.raises(ValueError, match="text_embeddings"):
+            executor._prepare_batch(batch)
+
+
+# ============================================================================
+# Loss Accumulation Tests
+# ============================================================================
+
+
+class TestLossAccumulation:
+    """Tests for loss aggregation across gradient accumulation steps."""
+
+    def test_loss_average_passed_to_optimizer_step(self):
+        """After Phase C: each execute() is standalone; loss is per-call."""
+        executor, _ = create_step_executor(gradient_accumulation_steps=1)
+        batch = create_batch()
+
+        losses = [
+            torch.tensor(1.0, requires_grad=True),
+            torch.tensor(3.0, requires_grad=True),
+        ]
+
+        def fake_forward(*_args, **_kwargs):
+            loss = losses.pop(0)
+            return {
+                "total": loss,
+                "vloss": loss,
+                "freq_loss": torch.tensor(0.0),
+                "repa_loss": torch.tensor(0.0),
+            }, torch.zeros(1)
+
+        executor._forward = MagicMock(side_effect=fake_forward)
+        executor._backward_scaled = MagicMock()
+
+        recorded = []
+
+        def fake_optimizer_step(step, loss_value, lr_scheduler, warmup_fn, warmup_steps):
+            recorded.append(loss_value)
+            return 0.0
+
+        executor._optimizer_step = MagicMock(side_effect=fake_optimizer_step)
+
+        metrics0, _ = executor.execute(batch, step=0)
+        metrics1, _ = executor.execute(batch, step=1)
+
+        # Each execute() is standalone: loss = per-call value
+        assert recorded[0] == pytest.approx(1.0)
+        assert recorded[1] == pytest.approx(3.0)
+        assert not torch.isnan(torch.tensor(metrics0.loss))
+        assert not torch.isnan(torch.tensor(metrics1.loss))
 
     def test_step_output_shapes(self):
         """Test that all output tensors have correct shapes."""
         executor, model = create_step_executor()
-        batch = create_batch(batch_size=4, height=64, width=64)
+        batch = create_batch(batch_size=4, height=32, width=32)
 
         metrics, batch_size = executor.execute(batch, step=0)
 
@@ -486,14 +616,14 @@ class TestStepExecutorIntegration:
     """Integration tests for StepExecutor."""
 
     def test_step_with_pooled_text_embed(self):
-        """Test step execution with pooled text embedding."""
+        """Test step execution ignores pooled text embedding (removed feature)."""
         executor, model = create_step_executor()
         batch = create_batch(include_text=True, include_pooled=True)
 
         metrics, _ = executor.execute(batch, step=0)
 
-        # Verify pooled embed was passed
-        assert model.last_kwargs["pooled_text_embed"] is not None
+        # pooled_text_embed was removed (2026-02-02); model should still run
+        assert model.forward_called
 
     def test_step_metrics_complete(self):
         """Test that returned metrics contain all expected fields."""

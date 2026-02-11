@@ -68,7 +68,7 @@ class TestSamplerConfig:
 
         assert config.num_steps == 50
         assert config.method == SamplerMethod.HEUN
-        assert config.t_eps == 0.05
+        assert config.t_eps == 0.0001
         assert config.guidance_scale == 7.5
         assert config.guidance_rescale == 0.0
 
@@ -186,13 +186,13 @@ class TestUnifiedSamplerInterface:
         """Test NFE count for Heun sampler."""
         sampler = create_sampler(method="heun", num_steps=50)
 
-        # Heun: 2 evaluations per step (except last)
+        # Heun: 2 evaluations per step
         nfe_no_cfg = sampler.count_nfe(use_cfg=False)
-        assert nfe_no_cfg == 2 * 50 - 1  # 99
+        assert nfe_no_cfg == 2 * 50  # 100
 
-        # With CFG (default: not full_heun_cfg): doubles steps
+        # With CFG: doubles evaluations
         nfe_with_cfg = sampler.count_nfe(use_cfg=True)
-        assert nfe_with_cfg == 50 * 2  # 100
+        assert nfe_with_cfg == 50 * 4  # 200
 
         # With full Heun CFG: doubles base NFE
         nfe_full_heun = sampler.count_nfe(use_cfg=True, full_heun_cfg=True)

@@ -259,7 +259,7 @@ class TestTrainMetrics:
         result = metrics.to_dict()
 
         expected_keys = {
-            "loss", "loss_vloss", "loss_freq", "loss_repa",
+            "loss", "loss_vloss", "loss_freq", "loss_repa", "loss_gamma_l2",
             "grad_norm", "learning_rate", "samples_per_sec", "step_time"
         }
         assert set(result.keys()) == expected_keys
@@ -646,7 +646,7 @@ class TestCheckpointing:
         trainer.state.step = 100
         trainer.save_checkpoint(temp_checkpoint_dir)
 
-        checkpoint_file = temp_checkpoint_dir / "checkpoint_step_100.pt"
+        checkpoint_file = temp_checkpoint_dir / "checkpoint_epoch1_step100.pt"
         assert checkpoint_file.exists()
 
     def test_save_checkpoint_custom_name(self, simple_model, temp_checkpoint_dir):
@@ -673,7 +673,7 @@ class TestCheckpointing:
         trainer.state.step = 50
         trainer.save_checkpoint(temp_checkpoint_dir)
 
-        checkpoint_file = temp_checkpoint_dir / "checkpoint_step_50.pt"
+        checkpoint_file = temp_checkpoint_dir / "checkpoint_epoch1_step50.pt"
         checkpoint = torch.load(checkpoint_file, weights_only=True)
 
         assert "model" in checkpoint
@@ -702,7 +702,7 @@ class TestCheckpointing:
             device=torch.device("cpu"),
         )
 
-        checkpoint_file = temp_checkpoint_dir / "checkpoint_step_100.pt"
+        checkpoint_file = temp_checkpoint_dir / "checkpoint_epoch5_step100.pt"
         trainer2.load_checkpoint(checkpoint_file)
 
         assert trainer2.state.step == 100
@@ -727,7 +727,7 @@ class TestCheckpointing:
 
         original_optimizer_state = trainer2.optimizer.state_dict()
 
-        checkpoint_file = temp_checkpoint_dir / "checkpoint_step_50.pt"
+        checkpoint_file = temp_checkpoint_dir / "checkpoint_epoch1_step50.pt"
         trainer2.load_checkpoint(checkpoint_file, load_optimizer=False)
 
         # Optimizer state should be unchanged
@@ -753,7 +753,7 @@ class TestCheckpointing:
             trainer1.model.linear1.weight.fill_(999.0)
 
         # Load checkpoint
-        checkpoint_file = temp_checkpoint_dir / "checkpoint_step_25.pt"
+        checkpoint_file = temp_checkpoint_dir / "checkpoint_epoch1_step25.pt"
         trainer1.load_checkpoint(checkpoint_file)
 
         # Weights should be restored

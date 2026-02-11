@@ -47,7 +47,8 @@ class PixelHDMForT2I(PixelHDM):
         self.load_text_encoder = load_text_encoder
         self.load_dino_encoder = load_dino_encoder
         self._text_encoder = None
-        self._text_projector = None
+        # Note: _text_projector removed - projection now handled by PixelHDM.text_projector
+        # Input dim must match config.text_hidden_size or hidden_dim.
         self._dino_encoder = None
         self._dino_projector = None
 
@@ -55,9 +56,8 @@ class PixelHDMForT2I(PixelHDM):
     def text_encoder(self):
         """Lazy-load text encoder."""
         if self._text_encoder is None and self.load_text_encoder:
-            from ..encoders.text_encoder import Qwen3TextEncoder, TextProjector
+            from ..encoders.text_encoder import Qwen3TextEncoder
             self._text_encoder = Qwen3TextEncoder(config=self.config)
-            self._text_projector = TextProjector(config=self.config)
         return self._text_encoder
 
     @property
@@ -73,19 +73,23 @@ class PixelHDMForT2I(PixelHDM):
         """
         Encode text to embeddings.
 
+        Note: Returns raw hidden_states without projection.
+        Projection to hidden_dim is handled by PixelHDM.text_projector internally.
+        Input dim must match config.text_hidden_size or hidden_dim.
+
         Args:
             texts: List of text strings
 
         Returns:
-            (text_embed, text_mask)
+            (text_embed, text_mask) - text_embed shape: (B, T, text_hidden_size)
         """
         if self.text_encoder is None:
             raise RuntimeError("文本編碼器未加載")
         # Use return_pooled=False to get only (hidden_states, mask)
         # The text encoder returns 3 values when return_pooled=True (default)
+        # Note: No projection here - PixelHDM.forward() handles dimension alignment
         hidden_states, mask = self.text_encoder(texts=texts, return_pooled=False)
-        text_embed = self._text_projector(hidden_states)
-        return text_embed, mask
+        return hidden_states, mask
 
     def get_dino_features(self, x: torch.Tensor) -> torch.Tensor:
         """

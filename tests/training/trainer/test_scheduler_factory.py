@@ -69,7 +69,7 @@ class TestT0CalculationBasic:
     def test_auto_calculate_t0_basic(self):
         """Test T_0 = restart_epochs * steps_per_epoch (optimizer steps).
 
-        Formula: T_0 = restart_epochs * (len(dataloader) / gradient_accumulation_steps)
+        Formula: T_0 = restart_epochs * len(dataloader)
         """
         # Create config with restart_period=0 (auto-calculate)
         config = TrainingConfig(
@@ -92,10 +92,7 @@ class TestT0CalculationBasic:
         assert t0 == 400, f"Expected T_0=400, got {t0}"
 
     def test_auto_calculate_t0_with_gradient_accumulation(self):
-        """Test T_0 calculation accounts for gradient accumulation.
-
-        With grad_accum=2, optimizer steps per epoch = len(dataloader) / 2
-        """
+        """Test T_0 is independent from gradient accumulation."""
         config = TrainingConfig(
             restart_epochs=4,
             restart_period=0,
@@ -105,7 +102,7 @@ class TestT0CalculationBasic:
 
         mock_dataloader = create_mock_dataloader(100)
 
-        # gradient_accumulation_steps=2: T_0 = 4 * (100 / 2) = 200
+        # grad_accum no longer changes per-epoch step budget
         t0 = _calculate_t0(
             restart_period=0,
             restart_epochs=4,
@@ -113,7 +110,7 @@ class TestT0CalculationBasic:
             dataloader=mock_dataloader,
             gradient_accumulation_steps=2,
         )
-        assert t0 == 200, f"Expected T_0=200, got {t0}"
+        assert t0 == 400, f"Expected T_0=400, got {t0}"
 
     def test_auto_calculate_t0_different_dataset_sizes(self):
         """Test T_0 calculation with different dataloader lengths."""
@@ -133,8 +130,8 @@ class TestT0CalculationBasic:
             dataloader=mock_dataloader_small,
             gradient_accumulation_steps=2,
         )
-        # optimizer_steps_per_epoch = 3 // 2 = 1, T_0 = 8 * 1 = 8
-        assert t0_small == 8, f"Expected T_0=8, got {t0_small}"
+        # steps_per_epoch = 3, T_0 = 8 * 3 = 24
+        assert t0_small == 24, f"Expected T_0=24, got {t0_small}"
 
         # Large dataset: 10000 images / batch_size=8 = 1250 batches
         mock_dataloader_large = create_mock_dataloader(1250)
@@ -145,8 +142,8 @@ class TestT0CalculationBasic:
             dataloader=mock_dataloader_large,
             gradient_accumulation_steps=2,
         )
-        # optimizer_steps_per_epoch = 1250 // 2 = 625, T_0 = 8 * 625 = 5000
-        assert t0_large == 5000, f"Expected T_0=5000, got {t0_large}"
+        # steps_per_epoch = 1250, T_0 = 8 * 1250 = 10000
+        assert t0_large == 10000, f"Expected T_0=10000, got {t0_large}"
 
     def test_t0_manual_override(self):
         """Test restart_period > 0 uses manual value instead of auto-calculation."""
@@ -230,7 +227,7 @@ class TestSchedulerCreation:
 
     def test_create_with_warmup(self):
         """Test scheduler with warmup steps applied."""
-        optimizer = create_optimizer(lr=1e-4)
+        optimizer = create_optimizer(lr=2e-4)  # Match scheduler's base_lr
         config = TrainingConfig(
             stepped_cosine_restart=SteppedCosineRestartConfig(
                 enabled=True,
@@ -253,7 +250,7 @@ class TestSchedulerCreation:
         # During warmup, LR should increase linearly
         # After init (which calls step()), total_steps=1
         # warmup_factor = (1 + 1) / 50 = 0.04
-        # LR = 2e-4 * 0.04 = 8e-6
+        # LR = base_lrs * 0.04 = 2e-4 * 0.04 = 8e-6
         expected_first_lr = 2e-4 * (2 / 50)
         actual_lr = optimizer.param_groups[0]['lr']
         assert abs(actual_lr - expected_first_lr) < 1e-10
@@ -574,7 +571,7 @@ class TestLRScheduleVerification:
 
     def test_lr_at_cycle_start(self):
         """Test LR at start of cycle = peak_lr * decay^cycle."""
-        optimizer = create_optimizer(lr=1e-4)
+        optimizer = create_optimizer(lr=2e-4)  # Match scheduler's base_lr
 
         base_lr = 2e-4
         decay_rate = 0.8
@@ -819,8 +816,7 @@ class TestSchedulerFactoryEdgeCases:
             gradient_accumulation_steps=2  # More than dataloader length
         )
 
-        # optimizer_steps_per_epoch = 1 // 2 = 0 -> clamped to 1
-        # T_0 = 1 * 1 = 1 (minimum)
+        # steps_per_epoch = 1, restart_epochs = 1 -> T_0 = 1 (minimum)
         assert scheduler.T_0 >= 1
 
 

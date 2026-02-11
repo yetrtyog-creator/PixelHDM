@@ -53,7 +53,7 @@ class VLoss(nn.Module):
     def __init__(
         self,
         config: Optional["PixelHDMConfig"] = None,
-        t_eps: float = 0.05,
+        t_eps: float = 0.0001,
     ) -> None:
         super().__init__()
         # t_eps 保留用於兼容性，但 V-Prediction 不需要除法
@@ -158,7 +158,7 @@ class VLossWithVelocity(VLoss):
 # === 工廠函數 ===
 
 def create_vloss(
-    t_eps: float = 0.05,
+    t_eps: float = 0.0001,
 ) -> VLoss:
     """創建 V-Loss"""
     return VLoss(config=None, t_eps=t_eps)
@@ -172,7 +172,7 @@ def create_vloss_from_config(
 
 
 def create_vloss_with_velocity(
-    t_eps: float = 0.05,
+    t_eps: float = 0.0001,
 ) -> VLossWithVelocity:
     """創建帶 velocity 輸出的 V-Loss"""
     return VLossWithVelocity(config=None, t_eps=t_eps)

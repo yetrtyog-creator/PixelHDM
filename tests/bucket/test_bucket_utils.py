@@ -28,6 +28,7 @@ from src.training.bucket.utils import (
     create_bucket_manager,
 )
 from src.training.bucket.generator import AspectRatioBucket
+from src.training.dataset.constants import IMAGE_EXTENSIONS as IMAGE_EXTENSIONS_CONST
 
 
 # ============================================================================
@@ -60,6 +61,14 @@ class TestAdaptiveBufferManagerInit:
         assert manager.min_prefetch == 2
         assert manager.max_prefetch == 16
         assert manager.bytes_per_pixel == 24.0
+
+
+class TestImageExtensions:
+    """Tests for shared IMAGE_EXTENSIONS constant."""
+
+    def test_extensions_shared_constant(self):
+        """IMAGE_EXTENSIONS should be imported from shared constants."""
+        assert IMAGE_EXTENSIONS is IMAGE_EXTENSIONS_CONST
 
 
 class TestAdaptiveBufferManagerPrefetch:

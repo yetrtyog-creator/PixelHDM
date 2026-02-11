@@ -301,9 +301,9 @@ class TestRangeValidation:
             assert 0 < config.time_eps < 0.5, \
                 f"time_eps {time_eps} should be in (0, 0.5)"
 
-        # Default should be 0.05
+        # Default should be 0.0001
         config_default = PixelHDMConfig.default()
-        assert config_default.time_eps == 0.05
+        assert config_default.time_eps == 0.0001
 
     def test_time_p_mean_range(self):
         """Test that time_p_mean is in a reasonable range.
@@ -381,7 +381,7 @@ class TestRangeValidation:
         config_default = PixelHDMConfig.default()
         assert config_default.dropout == 0.0
         assert config_default.attention_dropout == 0.0
-        assert config_default.cfg_dropout == 0.1
+        assert config_default.cfg_dropout == 0.0
 
     def test_layer_counts_positive(self):
         """Test that patch_layers and pixel_layers must be positive.

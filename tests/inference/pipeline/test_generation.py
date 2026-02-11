@@ -67,22 +67,25 @@ def generator(mock_model: MockModel) -> Generator:
 def generator_with_config(mock_model: MockModel) -> Generator:
     """Create generator with config."""
     config = PixelHDMConfig.for_testing()
+    config.time_p_mean = -0.8
+    config.time_p_std = 0.8
     return Generator(model=mock_model, config=config)
 
 
 @pytest.fixture
 def sample_inputs() -> GenerationInputs:
-    """Create sample generation inputs."""
+    """Create sample generation inputs.
+
+    Note: pooled_text_embed removed on 2026-02-02 per CLAUDE.md.
+    """
     batch_size = 2
     height, width = 256, 256
     return GenerationInputs(
         z_0=torch.randn(batch_size, height, width, 3),
         text_embed=torch.randn(batch_size, 32, 1024),
         text_mask=torch.ones(batch_size, 32),
-        pooled_text_embed=torch.randn(batch_size, 1024),
         null_text_embed=torch.zeros(batch_size, 32, 1024),
         null_text_mask=torch.ones(batch_size, 32),
-        null_pooled_text_embed=torch.zeros(batch_size, 1024),
         batch_size=batch_size,
         height=height,
         width=width,
@@ -160,6 +163,13 @@ class TestSamplerCreation:
         sampler = generator.get_sampler(method=method, num_steps=50)
         assert sampler is not None
 
+    def test_sampler_uses_config_time_distribution(self, generator_with_config: Generator):
+        """Test sampler inherits time distribution settings from config."""
+        sampler = generator_with_config.get_sampler(method="euler", num_steps=50)
+        assert sampler.use_logit_normal is True
+        assert sampler.time_p_mean == generator_with_config.config.time_p_mean
+        assert sampler.time_p_std == generator_with_config.config.time_p_std
+
 
 # =============================================================================
 # Test Class: T_eps Handling
@@ -202,14 +212,14 @@ class TestNFECounting:
     def test_count_nfe_heun(self, generator: Generator):
         """Test NFE count for Heun sampler."""
         nfe = generator.count_nfe(num_steps=50, use_cfg=False, sampler_method="heun")
-        # Heun: 2 per step except last = 2*50 - 1 = 99
-        assert nfe == 99
+        # Heun: 2 model calls per step
+        assert nfe == 100
 
     def test_count_nfe_heun_with_cfg(self, generator: Generator):
         """Test NFE count for Heun with CFG (default, not full_heun_cfg)."""
         nfe = generator.count_nfe(num_steps=50, use_cfg=True, sampler_method="heun")
-        # Default CFG doubles steps (not full Heun on both branches)
-        assert nfe == 100
+        # CFG doubles model calls per step
+        assert nfe == 200
 
 
 # =============================================================================

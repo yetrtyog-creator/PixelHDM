@@ -35,8 +35,8 @@ class FrequencyLoss(nn.Module):
         weight: Loss weight
 
     Shape:
-        - v_pred: (B, C, H, W)
-        - v_target: (B, C, H, W)
+        - pred: (B, C, H, W)
+        - target: (B, C, H, W)
         - Output: scalar
     """
 
@@ -132,37 +132,37 @@ class FrequencyLoss(nn.Module):
 
     def forward(
         self,
-        v_pred: torch.Tensor,
-        v_target: torch.Tensor,
+        pred: torch.Tensor,
+        target: torch.Tensor,
     ) -> torch.Tensor:
         """
         Compute frequency-aware loss.
 
         Args:
-            v_pred: Predicted velocity (B, C, H, W)
-            v_target: Target velocity (B, C, H, W)
+            pred: Predicted image (B, C, H, W)
+            target: Target image (B, C, H, W)
 
         Returns:
             Loss value
         """
         if not self._enabled:
-            return torch.tensor(0.0, device=v_pred.device, dtype=v_pred.dtype)
+            return torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
 
-        original_dtype = v_pred.dtype
-        v_pred = v_pred.float()
-        v_target = v_target.float()
+        original_dtype = pred.dtype
+        pred = pred.float()
+        target = target.float()
 
-        B, C, H, W = v_pred.shape
+        B, C, H, W = pred.shape
 
         if self.use_ycbcr and C == 3:
-            v_pred = rgb_to_ycbcr(v_pred)
-            v_target = rgb_to_ycbcr(v_target)
+            pred = rgb_to_ycbcr(pred)
+            target = rgb_to_ycbcr(target)
             use_chroma = True
         else:
             use_chroma = False
 
-        V_pred = self.dct(v_pred)
-        V_target = self.dct(v_target)
+        V_pred = self.dct(pred)
+        V_target = self.dct(target)
 
         _, C_new, _, _ = V_pred.shape
 

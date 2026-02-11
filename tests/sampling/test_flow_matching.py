@@ -608,3 +608,47 @@ class TestPixelHDMSampler:
         # x = z + (1-t) * v
         expected = z + (1 - 0.5) * v_pred
         assert torch.allclose(x_pred, expected, atol=1e-5)
+
+    def test_predict_v_uses_text_embed_kwarg(self, sampler):
+        """Model should receive text_embed kwarg, not text_embeddings."""
+        class KwargModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.last_text_embed = None
+                self.last_kwargs = None
+
+            def forward(self, z, t, text_embed=None, **kwargs):
+                self.last_text_embed = text_embed
+                self.last_kwargs = kwargs
+                return torch.zeros_like(z)
+
+        model = KwargModel()
+        z = torch.zeros(1, 3, 4, 4)
+        t = torch.zeros(1)
+        text_embeddings = torch.randn(1, 5, 4)
+
+        sampler._predict_v(
+            model, z, t,
+            text_embeddings=text_embeddings,
+            guidance_scale=1.0,
+            null_text_embeddings=None,
+        )
+
+        assert model.last_text_embed is text_embeddings
+        assert "text_embeddings" not in (model.last_kwargs or {})
+
+    def test_predict_v_rejects_text_embed_in_model_kwargs(self, sampler):
+        """Passing text_embed via model_kwargs should raise."""
+        model = nn.Identity()
+        z = torch.zeros(1, 3, 4, 4)
+        t = torch.zeros(1)
+        text_embeddings = torch.randn(1, 5, 4)
+
+        with pytest.raises(ValueError, match="text_embed"):
+            sampler._predict_v(
+                model, z, t,
+                text_embeddings=text_embeddings,
+                guidance_scale=1.0,
+                null_text_embeddings=None,
+                text_embed=torch.randn_like(text_embeddings),
+            )

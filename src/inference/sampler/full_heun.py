@@ -38,6 +38,8 @@ class FullHeunCFGMixin:
         guidance_scale: float = 7.5,
         null_text_embeddings: Optional[torch.Tensor] = None,
         callback: Optional[Callable[[int, int, torch.Tensor], None]] = None,
+        null_text_mask: Optional[torch.Tensor] = None,
+        num_tokens: Optional[int] = None,
         **model_kwargs,
     ) -> torch.Tensor:
         """
@@ -52,16 +54,19 @@ class FullHeunCFGMixin:
             guidance_scale: CFG guidance scale
             null_text_embeddings: (B, T, D) Unconditional text embeddings
             callback: Progress callback (step, total_steps, z)
+            null_text_mask: (B, T) Null text mask for unconditional branch
             **model_kwargs: Additional model arguments
 
         Returns:
             x: (B, H, W, 3) Generated samples
         """
-        num_steps = num_steps or self.num_steps
+        num_steps = self.num_steps if num_steps is None else num_steps
         device = z_0.device
         dtype = z_0.dtype
 
-        timesteps = self._sampler.get_timesteps(num_steps, device, dtype)
+        timesteps = self._sampler.get_timesteps(
+            num_steps, device, dtype, num_tokens=num_tokens
+        )
         z = z_0
 
         for i in range(num_steps):
@@ -70,7 +75,8 @@ class FullHeunCFGMixin:
 
             z = self._full_heun_cfg_step(
                 model, z, t, t_next, i, num_steps,
-                text_embeddings, null_text_embeddings,
+                text_embeddings, text_mask,
+                null_text_embeddings, null_text_mask,
                 guidance_scale, **model_kwargs
             )
 
@@ -88,38 +94,41 @@ class FullHeunCFGMixin:
         step_idx: int,
         num_steps: int,
         text_embeddings: Optional[torch.Tensor],
+        text_mask: Optional[torch.Tensor],
         null_text_embeddings: Optional[torch.Tensor],
+        null_text_mask: Optional[torch.Tensor],
         guidance_scale: float,
         **model_kwargs,
     ) -> torch.Tensor:
         """Single step of full Heun CFG sampling (V-Prediction).
 
         Note:
-            CFG 分支需要區分條件和無條件的 pooled_text_embed 和 text_mask：
-            - pooled_text_embed / text_mask: 用於條件分支
-            - null_pooled_text_embed / null_text_mask: 用於無條件分支
+            CFG 分支需要區分條件和無條件的 text_mask：
+            - text_mask: 用於條件分支
+            - null_text_mask: 用於無條件分支
         """
         dt = t_next - t
         t_batch = t.expand(z.shape[0])
 
-        # 提取 embeddings 和 masks (CFG 需要區分)
-        pooled_text_embed = model_kwargs.pop("pooled_text_embed", None)
-        null_pooled_text_embed = model_kwargs.pop("null_pooled_text_embed", None)
-        text_mask = model_kwargs.pop("text_mask", None)
-        null_text_mask = model_kwargs.pop("null_text_mask", None)
+        # 提取 masks (CFG 需要區分)
+        if "text_mask" in model_kwargs or "null_text_mask" in model_kwargs:
+            model_kwargs = {
+                k: v for k, v in model_kwargs.items()
+                if k not in {"text_mask", "null_text_mask"}
+            }
 
-        # Conditional branch Heun (使用 pooled_text_embed 和 text_mask)
+        # Conditional branch Heun
         v_cond_avg = self._heun_branch(
             model, z, t_batch, t_next, dt, step_idx, num_steps,
-            text_embeddings, pooled_text_embed, text_mask, **model_kwargs
+            text_embeddings, text_mask, **model_kwargs
         )
 
-        # Unconditional branch Heun (if CFG enabled, 使用 null_pooled_text_embed 和 null_text_mask)
+        # Unconditional branch Heun (if CFG enabled)
         if guidance_scale > 1.0 and null_text_embeddings is not None:
             uncond_mask = null_text_mask if null_text_mask is not None else text_mask
             v_uncond_avg = self._heun_branch(
                 model, z, t_batch, t_next, dt, step_idx, num_steps,
-                null_text_embeddings, null_pooled_text_embed, uncond_mask, **model_kwargs
+                null_text_embeddings, uncond_mask, **model_kwargs
             )
             # CFG combination
             v_final = v_uncond_avg + guidance_scale * (v_cond_avg - v_uncond_avg)
@@ -138,7 +147,6 @@ class FullHeunCFGMixin:
         step_idx: int,
         num_steps: int,
         text_embeddings: Optional[torch.Tensor],
-        pooled_text_embed: Optional[torch.Tensor] = None,
         text_mask: Optional[torch.Tensor] = None,
         **model_kwargs,
     ) -> torch.Tensor:
@@ -148,7 +156,6 @@ class FullHeunCFGMixin:
             z, t_batch,
             text_embed=text_embeddings,
             text_mask=text_mask,
-            pooled_text_embed=pooled_text_embed,
             **model_kwargs
         )
         z_euler = z + dt * v
@@ -160,7 +167,6 @@ class FullHeunCFGMixin:
                 z_euler, t_next_batch,
                 text_embed=text_embeddings,
                 text_mask=text_mask,
-                pooled_text_embed=pooled_text_embed,
                 **model_kwargs
             )
             return (v + v_next) / 2

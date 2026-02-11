@@ -234,12 +234,12 @@ class TestOptimizerStepBasic:
 class TestGradientAccumulation:
     """Tests for gradient accumulation logic."""
 
-    def test_accumulation_skips_on_non_boundary_step(self):
-        """Test that optimizer step is skipped when accumulating."""
+    def test_accumulation_always_steps_after_phase_c(self):
+        """After Phase C: _optimizer_step always executes (no accumulation check)."""
         mixin, model = create_test_setup(gradient_accumulation_steps=4)
         simulate_backward(model)
 
-        # Step 0, 1, 2 should skip (not divisible by 4)
+        # All steps should execute (accumulation is now handled by the loop)
         for step in [0, 1, 2]:
             grad_norm = mixin._optimizer_step(
                 step=step,
@@ -248,7 +248,8 @@ class TestGradientAccumulation:
                 warmup_fn=None,
                 warmup_steps=0,
             )
-            assert grad_norm == 0.0, f"Step {step} should skip, got grad_norm={grad_norm}"
+            simulate_backward(model)  # re-create gradients for next step
+            assert grad_norm > 0.0, f"Step {step} should execute, got grad_norm={grad_norm}"
 
     def test_accumulation_executes_on_boundary_step(self):
         """Test that optimizer step executes on accumulation boundary."""
@@ -267,7 +268,7 @@ class TestGradientAccumulation:
         assert grad_norm > 0.0, "Step 3 should execute optimizer step"
 
     def test_accumulation_pattern_with_steps_2(self):
-        """Test accumulation pattern with gradient_accumulation_steps=2."""
+        """After Phase C: all steps execute (accumulation in loop, not mixin)."""
         mixin, model = create_test_setup(gradient_accumulation_steps=2)
 
         results = []
@@ -282,24 +283,18 @@ class TestGradientAccumulation:
             )
             results.append(grad_norm > 0.0)
 
-        # Steps 1, 3, 5 should execute (odd steps)
-        expected = [False, True, False, True, False, True]
+        # All steps should execute (Phase C: always steps)
+        expected = [True, True, True, True, True, True]
         assert results == expected, f"Expected {expected}, got {results}"
 
-    def test_accumulation_does_not_zero_grad_when_skipping(self):
-        """Test that zero_grad is not called when accumulating."""
+    def test_accumulation_always_zeros_grad_after_phase_c(self):
+        """After Phase C: _optimizer_step always zeros grad after stepping."""
         mixin, model = create_test_setup(gradient_accumulation_steps=4)
         simulate_backward(model)
 
-        # Store original gradients
-        original_grads = {
-            name: param.grad.clone() if param.grad is not None else None
-            for name, param in model.named_parameters()
-        }
-
         mixin.optimizer.zero_grad = MagicMock()
 
-        # Step 0 should skip
+        # Step 0 should still execute and zero_grad
         mixin._optimizer_step(
             step=0,
             loss_value=1.0,
@@ -308,8 +303,8 @@ class TestGradientAccumulation:
             warmup_steps=0,
         )
 
-        # zero_grad should not be called when skipping
-        mixin.optimizer.zero_grad.assert_not_called()
+        # zero_grad should be called (Phase C: always steps)
+        mixin.optimizer.zero_grad.assert_called_once()
 
     def test_accumulation_with_step_1_always_executes(self):
         """Test that gradient_accumulation_steps=1 always executes."""
@@ -489,18 +484,18 @@ class TestUpdateEMATiming:
 
         mixin.ema.update.assert_called_once_with(mixin.model, 3)
 
-    def test_ema_update_skipped_when_accumulating(self):
-        """Test that EMA update is skipped when accumulating gradients."""
+    def test_ema_update_always_runs_after_phase_c(self):
+        """After Phase C: _update_ema always runs (called once per optimizer step)."""
         mixin, model = create_test_setup(
             gradient_accumulation_steps=4,
             use_ema=True,
         )
 
-        # Steps 0, 1, 2 should skip EMA update
+        # All steps should update EMA (Phase C: always updates)
         for step in [0, 1, 2]:
             mixin._update_ema(step=step)
 
-        mixin.ema.update.assert_not_called()
+        assert mixin.ema.update.call_count == 3
 
     def test_ema_update_with_none_ema(self):
         """Test that _update_ema handles None ema gracefully."""
@@ -653,7 +648,8 @@ class TestLossSpikeDetection:
 
         assert result is True
         mixin.cpu_checkpoint.step.assert_called_once_with(
-            mixin.model, mixin.optimizer, mixin.ema, 100.0, 10
+            mixin.model, mixin.optimizer, mixin.ema, 100.0, 10,
+            scaler=None,
         )
 
     def test_no_spike_continues_normally(self):

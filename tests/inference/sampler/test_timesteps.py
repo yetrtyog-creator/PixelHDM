@@ -50,8 +50,12 @@ class TestTimestepGeneration:
         assert timesteps[-1] <= 1 - t_eps, f"Last timestep {timesteps[-1]} > 1 - t_eps"
 
     def test_timesteps_uniform_spacing(self):
-        """Test timesteps are uniformly spaced."""
-        timesteps = get_timesteps(50, t_eps=0.05)
+        """Test timesteps are uniformly spaced when use_logit_normal=False.
+
+        Note: Default is now Logit-Normal distribution for consistency with training.
+        Use use_logit_normal=False for uniform spacing.
+        """
+        timesteps = get_timesteps(50, t_eps=0.05, use_logit_normal=False)
 
         diffs = timesteps[1:] - timesteps[:-1]
         expected_diff = diffs[0]

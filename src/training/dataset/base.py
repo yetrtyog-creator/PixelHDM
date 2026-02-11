@@ -20,13 +20,9 @@ import numpy as np
 from torch.utils.data import Dataset
 from PIL import Image
 
+from ..constants import IMAGE_EXTENSIONS
+
 logger = logging.getLogger(__name__)
-
-
-# Supported image extensions
-IMAGE_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff", ".tif"
-}
 
 
 class BaseImageTextDataset(Dataset, ABC):

@@ -217,7 +217,6 @@ class DiagnosticTrainer:
             "v_target": v_target,
             "text_embed": torch.randn(B, T, D, device=self.device),
             "text_mask": torch.ones(B, T, dtype=torch.bool, device=self.device),
-            "pooled_text_embed": torch.randn(B, D, device=self.device),
         }
 
     def _capture_intermediate_values(self, batch: Dict[str, torch.Tensor]) -> Dict[str, Any]:
@@ -277,10 +276,6 @@ class DiagnosticTrainer:
 
             # Compute s_cond
             s_cond = semantic_tokens + t_embed.unsqueeze(1)
-            pooled_text_embed = batch.get("pooled_text_embed")
-            if pooled_text_embed is not None:
-                s_cond = s_cond + pooled_text_embed.unsqueeze(1)
-
             captured["s_cond"] = TensorStats.from_tensor(s_cond)
 
             # Capture AdaLN parameters
@@ -388,7 +383,6 @@ class DiagnosticTrainer:
             t=batch["t"],
             text_embed=batch["text_embed"],
             text_mask=batch["text_mask"],
-            pooled_text_embed=batch["pooled_text_embed"],
         )
 
         # Convert output to BCHW if needed

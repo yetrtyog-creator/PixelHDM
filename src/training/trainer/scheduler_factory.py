@@ -153,6 +153,16 @@ def _create_stepped_cosine_restart_scheduler(
         f"global_min_lr={stepped_config.global_min_lr}"
     )
 
+    # Warn about potential double warmup
+    external_warmup = training_config.warmup_steps if training_config else 0
+    internal_warmup = stepped_config.warmup_steps
+    if external_warmup > 0 and internal_warmup > 0:
+        logger.warning(
+            f"Double warmup detected: external warmup_steps={external_warmup}, "
+            f"scheduler warmup_steps={internal_warmup}. This will cause LR to "
+            f"warmup twice. Recommend setting one of them to 0."
+        )
+
     return SteppedCosineRestartScheduler(
         optimizer,
         T_0=max(1, t_0),
@@ -172,12 +182,27 @@ def _calculate_t0(
     dataloader: Optional["DataLoader"],
     gradient_accumulation_steps: int,
 ) -> int:
-    """Calculate T_0 for cosine restart scheduler."""
+    """Calculate T_0 for cosine restart scheduler.
+
+    Priority:
+        1. restart_period > 0: Use hardcoded step count
+        2. num_cycles > 0: T_0 = total_optimizer_steps / num_cycles
+        3. Otherwise: T_0 = steps_per_epoch * restart_epochs
+
+    Args:
+        restart_period: Hardcoded steps per cycle (overrides everything if > 0)
+        restart_epochs: Epochs per cycle (legacy, used if num_cycles == 0)
+        training_config: Training config with num_cycles, num_epochs, etc.
+        dataloader: DataLoader for calculating steps_per_epoch
+        gradient_accumulation_steps: Kept for API compatibility. T_0 no longer
+            scales by accumulation; epoch step count is fixed to dataloader length.
+    """
     if restart_period > 0:
         logger.info(f"T_0 calculation: using hardcoded restart_period={restart_period}")
         return restart_period
 
     num_epochs = getattr(training_config, 'num_epochs', 16)
+    num_cycles = getattr(training_config, 'num_cycles', 0)
     max_steps = training_config.max_steps
 
     if dataloader is not None:
@@ -185,19 +210,35 @@ def _calculate_t0(
     else:
         steps_per_epoch = max(1, max_steps // num_epochs) if num_epochs > 0 else max_steps
 
-    optimizer_steps_per_epoch = steps_per_epoch // gradient_accumulation_steps
-    if optimizer_steps_per_epoch == 0:
-        optimizer_steps_per_epoch = 1
-        logger.warning("optimizer_steps_per_epoch was 0, set to 1")
+    optimizer_steps_per_epoch = max(1, steps_per_epoch)
 
-    t_0 = optimizer_steps_per_epoch * restart_epochs
+    # Priority: num_cycles > restart_epochs
+    if num_cycles > 0:
+        # Calculate total optimizer steps, then divide by num_cycles
+        total_optimizer_steps = optimizer_steps_per_epoch * num_epochs
+        t_0 = total_optimizer_steps // num_cycles
+        if t_0 == 0:
+            t_0 = 1
+            logger.warning("T_0 was 0 after num_cycles division, set to 1")
 
-    logger.info(
-        f"T_0 calculation: len(dataloader)={steps_per_epoch}, "
-        f"grad_accum={gradient_accumulation_steps}, "
-        f"opt_steps/epoch={optimizer_steps_per_epoch}, "
-        f"restart_epochs={restart_epochs} => T_0={t_0}"
-    )
+        logger.info(
+            f"T_0 calculation (num_cycles mode): "
+            f"total_opt_steps={total_optimizer_steps}, "
+            f"num_cycles={num_cycles} "
+            f"=> T_0={t_0} (cycle length), "
+            f"epochs_per_cycle={num_epochs // num_cycles}"
+        )
+    else:
+        # Legacy mode: restart_epochs = epochs per cycle
+        t_0 = optimizer_steps_per_epoch * restart_epochs
+
+        logger.info(
+            f"T_0 calculation (restart_epochs mode): "
+            f"len(dataloader)={steps_per_epoch}, "
+            f"opt_steps/epoch={optimizer_steps_per_epoch}, "
+            f"restart_epochs={restart_epochs} "
+            f"=> T_0={t_0} (cycle length)"
+        )
 
     return t_0
 
@@ -210,11 +251,14 @@ def apply_warmup_lr(
 ) -> None:
     """Apply linear warmup to learning rate.
 
+    Respects per-group lr_scale by using each group's initial_lr as the
+    warmup target instead of overwriting with a global base_lr.
+
     Args:
         optimizer: Optimizer instance
-        step: Current step
-        warmup_steps: Total warmup steps
-        base_lr: Base learning rate
+        step: Current step (should be optimizer steps, not batch steps)
+        warmup_steps: Total warmup steps (in optimizer steps)
+        base_lr: Base learning rate (used only if initial_lr not set)
     """
     if warmup_steps <= 0:
         return
@@ -222,10 +266,14 @@ def apply_warmup_lr(
     if step < warmup_steps:
         warmup_factor = (step + 1) / warmup_steps
         for param_group in optimizer.param_groups:
-            param_group["lr"] = base_lr * warmup_factor
+            # Use group's initial_lr if set (preserves lr_scale), else use base_lr
+            target_lr = param_group.get("initial_lr", base_lr)
+            param_group["lr"] = target_lr * warmup_factor
     elif step == warmup_steps:
         for param_group in optimizer.param_groups:
-            param_group["lr"] = base_lr
+            # Use group's initial_lr if set, else use base_lr
+            target_lr = param_group.get("initial_lr", base_lr)
+            param_group["lr"] = target_lr
             if "initial_lr" not in param_group:
                 param_group["initial_lr"] = base_lr
 

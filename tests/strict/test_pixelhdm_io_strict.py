@@ -739,7 +739,7 @@ class TestJointSequenceCreation:
         text_embed = torch.randn(B, T, D)
         text_mask = torch.ones(B, T, dtype=torch.long)
 
-        joint_tokens, joint_mask, text_len = pixelhdm_model._create_joint_sequence(
+        joint_tokens, joint_mask, text_len, _ = pixelhdm_model._create_joint_sequence(
             img_tokens, text_embed, text_mask
         )
 
@@ -770,7 +770,7 @@ class TestJointSequenceCreation:
         text_embed = torch.randn(B, T, D)
         text_mask = torch.ones(B, T, dtype=torch.long)
 
-        joint_tokens, _, text_len = pixelhdm_model._create_joint_sequence(
+        joint_tokens, _, text_len, _ = pixelhdm_model._create_joint_sequence(
             img_tokens, text_embed, text_mask
         )
 
@@ -801,7 +801,7 @@ class TestJointSequenceCreation:
         text_embed = torch.randn(B, T, D)
         text_mask = torch.ones(B, T, dtype=torch.long)
 
-        _, joint_mask, _ = pixelhdm_model._create_joint_sequence(
+        _, joint_mask, _, _ = pixelhdm_model._create_joint_sequence(
             img_tokens, text_embed, text_mask
         )
 
@@ -828,7 +828,7 @@ class TestJointSequenceCreation:
 
         img_tokens = torch.randn(B, L, D)
 
-        joint_tokens, joint_mask, text_len = pixelhdm_model._create_joint_sequence(
+        joint_tokens, joint_mask, text_len, text_only_mask = pixelhdm_model._create_joint_sequence(
             img_tokens, None, None
         )
 
@@ -837,6 +837,7 @@ class TestJointSequenceCreation:
             f"Without text, joint shape {joint_tokens.shape} != ({B}, {L}, {D})"
         assert joint_mask is None, "Without text, joint mask should be None"
         assert text_len == 0, "Without text, text_len should be 0"
+        assert text_only_mask is None, "Without text, text_only_mask should be None"
 
     def test_joint_sequence_extract_image_tokens(
         self,
@@ -855,7 +856,7 @@ class TestJointSequenceCreation:
         text_embed = torch.randn(B, T, D)
         text_mask = torch.ones(B, T, dtype=torch.long)
 
-        joint_tokens, _, text_len = pixelhdm_model._create_joint_sequence(
+        joint_tokens, _, text_len, _ = pixelhdm_model._create_joint_sequence(
             img_tokens, text_embed, text_mask
         )
 
@@ -881,7 +882,7 @@ class TestJointSequenceCreation:
 
         img_tokens = torch.randn(B, L, D)
 
-        joint_tokens, _, text_len = pixelhdm_model._create_joint_sequence(
+        joint_tokens, _, text_len, _ = pixelhdm_model._create_joint_sequence(
             img_tokens, None, None
         )
 

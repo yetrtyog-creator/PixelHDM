@@ -11,6 +11,10 @@ Date: 2026-01-08
 
 Tests the TrainingLoop class which manages the main training process,
 including batch iteration, epoch handling, checkpoint saving, and logging.
+
+NOTE: Every mock_train_step MUST increment loop.state.step += 1 to simulate
+real Trainer.train_step behavior. The loop's termination condition
+(state.step < total_steps) depends on train_step_fn incrementing the counter.
 """
 
 from __future__ import annotations
@@ -119,6 +123,7 @@ class TestLoopIteration:
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
             batches_processed.append(batch)
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -141,6 +146,7 @@ class TestLoopIteration:
         loop = create_training_loop(num_batches=3)
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -156,7 +162,8 @@ class TestLoopIteration:
             use_progress_bar=False,
         )
 
-        # After 9 steps with 3 batches/epoch, we should be at epoch 3
+        # Configured epoch boundary is step-based:
+        # step 3 -> epoch 1, step 6 -> epoch 2, step 9 -> epoch 3.
         assert loop.state.epoch == 3, f"Expected epoch 3, got {loop.state.epoch}"
 
     def test_loop_step_counter(self):
@@ -165,7 +172,8 @@ class TestLoopIteration:
         step_values = []
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
-            step_values.append(loop.state.step)
+            step_values.append(loop.state.step)  # Record BEFORE increment
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -180,9 +188,8 @@ class TestLoopIteration:
             use_progress_bar=False,
         )
 
-        # Step should increment: 0, 1, 2, 3, 4 (before each train_step call)
-        # Note: state.step is incremented after train_step in Trainer, not in loop
-        # Loop just calls train_step which handles step increment
+        # Step values recorded before increment: 0, 1, 2, 3, 4
+        assert step_values == [0, 1, 2, 3, 4], f"Expected [0,1,2,3,4], got {step_values}"
         assert loop.state.step == 5, f"Expected step 5, got {loop.state.step}"
 
     def test_loop_batch_size_consistency(self):
@@ -192,6 +199,7 @@ class TestLoopIteration:
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
             batch_sizes.append(batch["images"].shape[0])
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -218,6 +226,7 @@ class TestLoopIteration:
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
             batch_sizes.append(batch["images"].shape[0])
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -251,6 +260,7 @@ class TestLoopCheckpoint:
         checkpoint_calls = []
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
@@ -268,7 +278,6 @@ class TestLoopCheckpoint:
             )
 
         # Should save at step 5, 10 (interval) + final checkpoint
-        # Step 5: step checkpoint, Step 10: step checkpoint + completed checkpoint
         assert len(checkpoint_calls) >= 2, f"Expected at least 2 saves, got {len(checkpoint_calls)}"
 
     def test_loop_saves_ema(self):
@@ -278,6 +287,7 @@ class TestLoopCheckpoint:
         save_called = []
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
@@ -310,6 +320,7 @@ class TestLoopCheckpoint:
         )
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -342,7 +353,8 @@ class TestLoopCheckpoint:
         steps_executed = []
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
-            steps_executed.append(loop.state.step)
+            steps_executed.append(loop.state.step)  # Record BEFORE increment
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -360,6 +372,7 @@ class TestLoopCheckpoint:
 
         # Should execute steps 7, 8, 9 (3 steps to reach 10)
         assert len(steps_executed) == 3, f"Expected 3 steps, got {len(steps_executed)}"
+        assert steps_executed == [7, 8, 9], f"Expected [7,8,9], got {steps_executed}"
         assert loop.state.step == 10
 
     def test_loop_resume_epoch_correct(self):
@@ -374,6 +387,7 @@ class TestLoopCheckpoint:
         )
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -389,7 +403,7 @@ class TestLoopCheckpoint:
             use_progress_bar=False,
         )
 
-        # Should be at epoch 3 after completing the epoch
+        # Epoch boundary is step-based; step 9 is epoch 3 boundary.
         assert loop.state.epoch == 3, f"Expected epoch 3, got {loop.state.epoch}"
 
 
@@ -406,6 +420,7 @@ class TestLoopLogging:
         loop = create_training_loop(num_batches=10)
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics(loss=0.42)
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -432,6 +447,7 @@ class TestLoopLogging:
         loop = create_training_loop(num_batches=10)
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -458,6 +474,7 @@ class TestLoopLogging:
         log_steps = []
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -493,8 +510,8 @@ class TestLoopLogging:
         metrics_logged = []
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
-            m = create_mock_metrics(loss=0.123)
-            return m
+            loop.state.step += 1
+            return create_mock_metrics(loss=0.123)
 
         def mock_save_checkpoint(*args, **kwargs):
             pass
@@ -526,6 +543,7 @@ class TestLoopLogging:
         loop = create_training_loop(num_batches=5)
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -567,6 +585,7 @@ class TestLoopIntegration:
         checkpoint_names = []
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
@@ -594,6 +613,7 @@ class TestLoopIntegration:
         callback_calls = []
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -622,6 +642,7 @@ class TestLoopIntegration:
         loop = create_training_loop(num_batches=10)
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -666,6 +687,7 @@ class TestLoopIntegration:
 
         def mock_train_step(batch: Dict[str, torch.Tensor]) -> TrainMetrics:
             batch_indices.append(loop.state.batch_idx)
+            loop.state.step += 1
             return create_mock_metrics()
 
         def mock_save_checkpoint(*args, **kwargs):
@@ -682,6 +704,251 @@ class TestLoopIntegration:
 
         # batch_idx should go 1,2,3, then reset to 1,2,3 for second epoch
         assert batch_indices == [1, 2, 3, 1, 2, 3]
+
+
+# ============================================================================
+# Checkpoint Directory Config Tests (3 tests)
+# ============================================================================
+
+
+class TestLoopCheckpointDir:
+    """Tests for checkpoint_dir config integration."""
+
+    def _create_loop_with_config(self, checkpoint_dir="/tmp/test_ckpt", num_batches=5):
+        """Helper: create loop with a training_config that has checkpoint_dir."""
+        dataloader = MockDataLoader(num_batches=num_batches)
+        state = TrainerState()
+        training_config = MagicMock()
+        training_config.checkpoint_dir = checkpoint_dir
+        training_config.save_every_epochs = 0
+        training_config.log_every_epochs = 0
+        training_config.gradient_accumulation_steps = 1
+        training_config.drop_last_accumulation = True
+        return TrainingLoop(
+            dataloader=dataloader,
+            training_config=training_config,
+            state=state,
+        )
+
+    def test_loop_uses_checkpoint_dir_when_save_path_none(self):
+        """Test that checkpoint_dir is used when save_path is not provided."""
+        loop = self._create_loop_with_config(checkpoint_dir="/tmp/config_ckpt")
+        checkpoint_paths = []
+
+        def mock_train_step(batch):
+            loop.state.step += 1
+            return create_mock_metrics()
+
+        def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
+            checkpoint_paths.append(str(path))
+
+        loop.run(
+            train_step_fn=mock_train_step,
+            save_checkpoint_fn=mock_save_checkpoint,
+            num_steps=5,
+            save_interval=5,
+            log_interval=0,
+            save_path=None,  # Not provided — should fallback to checkpoint_dir
+            use_progress_bar=False,
+        )
+
+        # All checkpoint saves should use checkpoint_dir from config
+        assert len(checkpoint_paths) >= 1, "Expected at least one checkpoint save"
+        for p in checkpoint_paths:
+            assert p == "/tmp/config_ckpt", f"Expected /tmp/config_ckpt, got {p}"
+
+    def test_loop_save_path_overrides_checkpoint_dir(self):
+        """Test that explicit save_path takes priority over checkpoint_dir."""
+        loop = self._create_loop_with_config(checkpoint_dir="/tmp/config_path")
+        checkpoint_paths = []
+
+        def mock_train_step(batch):
+            loop.state.step += 1
+            return create_mock_metrics()
+
+        def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
+            checkpoint_paths.append(str(path))
+
+        loop.run(
+            train_step_fn=mock_train_step,
+            save_checkpoint_fn=mock_save_checkpoint,
+            num_steps=5,
+            save_interval=5,
+            log_interval=0,
+            save_path="/tmp/explicit_path",  # Explicit — should override config
+            use_progress_bar=False,
+        )
+
+        assert len(checkpoint_paths) >= 1
+        for p in checkpoint_paths:
+            assert p == "/tmp/explicit_path", f"Expected /tmp/explicit_path, got {p}"
+
+    def test_loop_step_based_saving_uses_checkpoint_dir(self):
+        """Test step-based saving works with checkpoint_dir when save_path=None."""
+        loop = self._create_loop_with_config(checkpoint_dir="/tmp/step_ckpt", num_batches=10)
+        checkpoint_calls = []
+
+        def mock_train_step(batch):
+            loop.state.step += 1
+            return create_mock_metrics()
+
+        def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
+            checkpoint_calls.append((str(path), checkpoint_name))
+
+        loop.run(
+            train_step_fn=mock_train_step,
+            save_checkpoint_fn=mock_save_checkpoint,
+            num_steps=10,
+            save_interval=5,  # Step-based saving
+            save_every_epochs=0,  # No epoch-based saving
+            log_interval=0,
+            save_path=None,  # Should fallback to checkpoint_dir
+            use_progress_bar=False,
+        )
+
+        # Step-based saves at step 5, 10 + completed checkpoint
+        assert len(checkpoint_calls) >= 2, f"Expected at least 2 saves, got {len(checkpoint_calls)}"
+        for p, _ in checkpoint_calls:
+            assert p == "/tmp/step_ckpt", f"Expected /tmp/step_ckpt, got {p}"
+
+        periodic_names = [
+            name for _, name in checkpoint_calls
+            if name is not None and name != "checkpoint_completed"
+        ]
+        assert "checkpoint_epoch1_step5" in periodic_names
+        assert "checkpoint_epoch1_step10" in periodic_names
+
+
+# ============================================================================
+# Checkpoint Naming Tests (Phase B)
+# ============================================================================
+
+
+class TestCheckpointNaming:
+    """Tests for epoch checkpoint naming format (Phase B: F-1)."""
+
+    def test_epoch_checkpoint_name_contains_epoch_and_step(self):
+        """Epoch checkpoint name must contain both epoch and step."""
+        loop = create_training_loop(num_batches=3)
+        checkpoint_names = []
+
+        def mock_train_step(batch):
+            loop.state.step += 1
+            return create_mock_metrics()
+
+        def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
+            if checkpoint_name and "epoch" in checkpoint_name:
+                checkpoint_names.append(checkpoint_name)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            loop.run(
+                train_step_fn=mock_train_step,
+                save_checkpoint_fn=mock_save_checkpoint,
+                num_steps=9,
+                save_every_epochs=1,
+                log_interval=0,
+                save_interval=0,
+                save_path=tmpdir,
+                use_progress_bar=False,
+            )
+
+        assert len(checkpoint_names) >= 1, "Expected at least 1 epoch checkpoint"
+        for name in checkpoint_names:
+            assert "epoch" in name, f"Missing 'epoch' in {name}"
+            assert "step" in name, f"Missing 'step' in {name}"
+
+    def test_epoch_checkpoint_name_matches_regex(self):
+        """Epoch checkpoint name must match: checkpoint_epoch{N}_step{S}."""
+        import re
+        pattern = re.compile(r"^checkpoint_epoch\d+_step\d+$")
+
+        loop = create_training_loop(num_batches=3)
+        checkpoint_names = []
+
+        def mock_train_step(batch):
+            loop.state.step += 1
+            return create_mock_metrics()
+
+        def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
+            if checkpoint_name and "epoch" in checkpoint_name:
+                checkpoint_names.append(checkpoint_name)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            loop.run(
+                train_step_fn=mock_train_step,
+                save_checkpoint_fn=mock_save_checkpoint,
+                num_steps=9,
+                save_every_epochs=1,
+                log_interval=0,
+                save_interval=0,
+                save_path=tmpdir,
+                use_progress_bar=False,
+            )
+
+        assert len(checkpoint_names) >= 1
+        for name in checkpoint_names:
+            assert pattern.match(name), f"Name '{name}' does not match pattern"
+
+    def test_old_epoch_format_no_longer_used(self):
+        """checkpoint_epoch_{N} format (with underscore before number) must not appear."""
+        import re
+        old_pattern = re.compile(r"^checkpoint_epoch_\d+$")
+
+        loop = create_training_loop(num_batches=3)
+        checkpoint_names = []
+
+        def mock_train_step(batch):
+            loop.state.step += 1
+            return create_mock_metrics()
+
+        def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
+            if checkpoint_name:
+                checkpoint_names.append(checkpoint_name)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            loop.run(
+                train_step_fn=mock_train_step,
+                save_checkpoint_fn=mock_save_checkpoint,
+                num_steps=9,
+                save_every_epochs=1,
+                log_interval=0,
+                save_interval=0,
+                save_path=tmpdir,
+                use_progress_bar=False,
+            )
+
+        for name in checkpoint_names:
+            assert not old_pattern.match(name), (
+                f"Old format '{name}' still in use — should be checkpoint_epoch{{N}}_step{{S}}"
+            )
+
+
+    def test_same_step_interval_and_epoch_boundary_save_only_once(self):
+        """If step-interval and epoch-boundary coincide, periodic save happens once."""
+        loop = create_training_loop(num_batches=5)
+        periodic_names = []
+
+        def mock_train_step(batch):
+            loop.state.step += 1
+            return create_mock_metrics()
+
+        def mock_save_checkpoint(path, checkpoint_name=None, **kwargs):
+            if checkpoint_name and checkpoint_name != "checkpoint_completed":
+                periodic_names.append(checkpoint_name)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            loop.run(
+                train_step_fn=mock_train_step,
+                save_checkpoint_fn=mock_save_checkpoint,
+                num_steps=6,
+                save_every_epochs=1,
+                save_interval=5,
+                log_interval=0,
+                save_path=tmpdir,
+                use_progress_bar=False,
+            )
+
+        assert periodic_names.count("checkpoint_epoch1_step5") == 1
 
 
 if __name__ == "__main__":

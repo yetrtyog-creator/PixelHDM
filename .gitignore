@@ -1,0 +1,15 @@
+# 1. 先忽略所有檔案與資料夾
+*
+
+# 2. 允許資料夾結構（這行是必須的，否則 Git 進不去子目錄）
+!*/
+
+# 3. 白名單：只保留這兩個資料夾及其內容
+!src/**
+!tests/**
+
+# 4. generated artifacts (cache/bytecode) should never be committed
+**/__pycache__/
+*.pyc
+*.pyc.*
+.pytest_cache/

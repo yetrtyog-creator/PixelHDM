@@ -191,8 +191,8 @@ class TestPixelPositionEncodingFix:
         source = inspect.getsource(core.PixelHDM.forward)
 
         # Verify position encoding is created
-        assert "create_image_positions_batched" in source, (
-            "PixelHDM.forward must create img_positions for pixel blocks"
+        assert "create_image_only_position_ids_batched" in source, (
+            "PixelHDM.forward must create image-only position_ids for pixel blocks"
         )
 
         # Verify pixel_rope_fn is created
@@ -201,8 +201,8 @@ class TestPixelPositionEncodingFix:
         )
 
         # Verify blocks receive the position info
-        assert "rope_fn=" in source and "img_positions=" in source, (
-            "pixel_blocks must receive rope_fn and img_positions arguments"
+        assert "rope_fn=" in source and "position_ids=" in source, (
+            "pixel_blocks must receive rope_fn and position_ids arguments"
         )
 
     def test_pixel_rope_uses_text_len_zero(self):
@@ -212,9 +212,9 @@ class TestPixelPositionEncodingFix:
 
         source = inspect.getsource(core.PixelHDM.forward)
 
-        # The fix should use text_len=0 for pixel-level RoPE
-        assert "text_len=0" in source, (
-            "Pixel-level rope_fn must use text_len=0 (no text tokens in pixel stage)"
+        # The fix should use image-only position IDs for pixel-level RoPE
+        assert "create_image_only_position_ids_batched" in source, (
+            "Pixel-level rope_fn must use image-only position IDs"
         )
 
 

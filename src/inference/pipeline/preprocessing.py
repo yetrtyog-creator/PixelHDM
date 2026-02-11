@@ -30,10 +30,8 @@ class GenerationInputs:
     z_0: torch.Tensor
     text_embed: torch.Tensor
     text_mask: torch.Tensor
-    pooled_text_embed: Optional[torch.Tensor]
     null_text_embed: Optional[torch.Tensor]
     null_text_mask: Optional[torch.Tensor]
-    null_pooled_text_embed: Optional[torch.Tensor]
     batch_size: int
     height: int
     width: int
@@ -55,7 +53,6 @@ class Preprocessor:
         self.dtype = dtype
         self._null_text_embed: Optional[torch.Tensor] = None
         self._null_text_mask: Optional[torch.Tensor] = None
-        self._null_pooled_embed: Optional[torch.Tensor] = None
 
     def prepare_inputs(
         self,
@@ -73,16 +70,14 @@ class Preprocessor:
 
         self.validator.validate_resolution(height, width)
 
-        text_embed, text_mask, pooled_embed, null_embed, null_mask, null_pooled = self.encode_prompt(
+        text_embed, text_mask, null_embed, null_mask = self.encode_prompt(
             prompts, negative_prompt, num_images_per_prompt
         )
         z_0 = self.prepare_latents(total_batch, height, width, generator)
 
         return GenerationInputs(
             z_0=z_0, text_embed=text_embed, text_mask=text_mask,
-            pooled_text_embed=pooled_embed,
             null_text_embed=null_embed, null_text_mask=null_mask,
-            null_pooled_text_embed=null_pooled,
             batch_size=total_batch, height=height, width=width,
         )
 
@@ -91,104 +86,106 @@ class Preprocessor:
         prompt: List[str],
         negative_prompt: Optional[Union[str, List[str]]],
         num_images_per_prompt: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """Encode text prompts.
 
         Returns:
-            Tuple of (text_embed, text_mask, pooled_embed, null_embed, null_mask, null_pooled)
+            Tuple of (text_embed, text_mask, null_embed, null_mask)
         """
         if self.text_encoder is None:
             raise RuntimeError("沒有可用的文本編碼器")
 
         batch_size = len(prompt)
-        text_embed, text_mask, pooled_embed = self._encode_text(prompt)
+        text_embed, text_mask = self._encode_text(prompt)
 
         if num_images_per_prompt > 1:
             text_embed = text_embed.repeat_interleave(num_images_per_prompt, dim=0)
             text_mask = text_mask.repeat_interleave(num_images_per_prompt, dim=0)
-            if pooled_embed is not None:
-                pooled_embed = pooled_embed.repeat_interleave(num_images_per_prompt, dim=0)
 
-        null_embed, null_mask, null_pooled = self._get_negative_embeddings(
+        null_embed, null_mask = self._get_negative_embeddings(
             negative_prompt, batch_size, num_images_per_prompt
         )
 
         text_embed = text_embed.to(device=self.device, dtype=self.dtype)
         text_mask = text_mask.to(device=self.device)
-        if pooled_embed is not None:
-            pooled_embed = pooled_embed.to(device=self.device, dtype=self.dtype)
         if null_embed is not None:
             null_embed = null_embed.to(device=self.device, dtype=self.dtype)
             null_mask = null_mask.to(device=self.device)
-        if null_pooled is not None:
-            null_pooled = null_pooled.to(device=self.device, dtype=self.dtype)
 
-        return text_embed, text_mask, pooled_embed, null_embed, null_mask, null_pooled
+        return text_embed, text_mask, null_embed, null_mask
 
-    def _encode_text(self, texts: List[str]) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    def _encode_text(self, texts: List[str]) -> Tuple[torch.Tensor, torch.Tensor]:
         """Encode a list of texts.
 
         Returns:
-            Tuple of (hidden_states, mask, pooled_output)
+            Tuple of (hidden_states, mask)
         """
-        result = self.text_encoder(texts=texts, return_pooled=True)
+        result = self.text_encoder(texts=texts, return_pooled=False)
         if isinstance(result, tuple):
-            if len(result) == 3:
-                return result
-            elif len(result) == 2:
-                return result[0], result[1], None
+            if len(result) >= 2:
+                return result[0], result[1]
         elif isinstance(result, dict):
             hidden_states = result.get("hidden_states", result.get("last_hidden_state"))
             mask = result.get("attention_mask")
-            pooled = result.get("pooled_output")
-            return hidden_states, mask, pooled
-        return result, None, None
+            return hidden_states, mask
+        return result, None
 
     def _get_negative_embeddings(
         self,
         negative_prompt: Optional[Union[str, List[str]]],
         batch_size: int,
         num_images_per_prompt: int,
-    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
         """Get negative embeddings for CFG.
 
         Returns:
-            Tuple of (null_embed, null_mask, null_pooled)
+            Tuple of (null_embed, null_mask)
         """
         total_size = batch_size * num_images_per_prompt
 
         if negative_prompt is not None:
             if isinstance(negative_prompt, str):
                 negative_prompt = [negative_prompt] * batch_size
-            null_embed, null_mask, null_pooled = self._encode_text(negative_prompt)
+            elif isinstance(negative_prompt, list):
+                # Validate and broadcast negative_prompt list
+                if len(negative_prompt) == 1:
+                    # Broadcast single negative prompt to all prompts
+                    negative_prompt = negative_prompt * batch_size
+                elif len(negative_prompt) != batch_size:
+                    raise ValueError(
+                        f"negative_prompt list length ({len(negative_prompt)}) must match "
+                        f"prompt batch size ({batch_size}) or be 1 for broadcasting"
+                    )
+            null_embed, null_mask = self._encode_text(negative_prompt)
             if num_images_per_prompt > 1:
                 null_embed = null_embed.repeat_interleave(num_images_per_prompt, dim=0)
                 null_mask = null_mask.repeat_interleave(num_images_per_prompt, dim=0)
-                if null_pooled is not None:
-                    null_pooled = null_pooled.repeat_interleave(num_images_per_prompt, dim=0)
-            return null_embed, null_mask, null_pooled
+            return null_embed, null_mask
 
         return self._get_null_text_embed(total_size)
 
     def _get_null_text_embed(
         self, batch_size: int
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Get cached null text embedding.
 
         Returns:
-            Tuple of (null_embed, null_mask, null_pooled)
+            Tuple of (null_embed, null_mask). null_mask may be None if encoder
+            doesn't return attention mask.
         """
         if self._null_text_embed is None:
             if self.text_encoder is None:
                 raise RuntimeError("無法獲取空文本嵌入")
-            self._null_text_embed, self._null_text_mask, self._null_pooled_embed = self._encode_text([""])
+            self._null_text_embed, self._null_text_mask = self._encode_text([""])
 
         null_embed = self._null_text_embed.expand(batch_size, -1, -1)
-        null_mask = self._null_text_mask.expand(batch_size, -1)
-        null_pooled = None
-        if self._null_pooled_embed is not None:
-            null_pooled = self._null_pooled_embed.expand(batch_size, -1)
-        return null_embed.clone(), null_mask.clone(), null_pooled.clone() if null_pooled is not None else None
+
+        # Handle case where encoder doesn't return attention mask
+        if self._null_text_mask is not None:
+            null_mask = self._null_text_mask.expand(batch_size, -1)
+            return null_embed.clone(), null_mask.clone()
+        else:
+            return null_embed.clone(), None
 
     def prepare_latents(
         self,
@@ -213,7 +210,6 @@ class Preprocessor:
         """Clear cached null text embeddings."""
         self._null_text_embed = None
         self._null_text_mask = None
-        self._null_pooled_embed = None
 
 
 __all__ = ["GenerationInputs", "Preprocessor"]

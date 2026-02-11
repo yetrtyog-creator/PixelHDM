@@ -524,8 +524,8 @@ class TestFactoryFunctionIntegration:
             gradient_accumulation_steps=2
         )
 
-        # T_0 should be: (100 / 2) * 4 = 200 steps
-        assert scheduler.T_0 == 200
+        # T_0 should be: 100 * 4 = 400 steps
+        assert scheduler.T_0 == 400
 
 
 class TestValidation:
@@ -663,7 +663,10 @@ class TestEpochToLRConversion:
         Returns:
             Tuple of (lr, cycle, T_cur)
         """
-        optimizer_steps_per_epoch = steps_per_epoch // gradient_accumulation_steps
+        # Unified semantics: epoch step budget is fixed to dataloader length.
+        # Accumulation changes compute per step, not steps_per_epoch.
+        _ = gradient_accumulation_steps
+        optimizer_steps_per_epoch = steps_per_epoch
         T_0 = optimizer_steps_per_epoch * restart_epochs
 
         # Current step in optimizer steps
@@ -805,11 +808,11 @@ class TestEpochToLRConversion:
         """Test that scheduler produces same LR as manual calculation."""
         optimizer = self._create_optimizer()
 
-        # Create scheduler with T_0 = (100/2) * 32 = 1600
+        # Create scheduler with T_0 = 100 * 32 = 3200
         steps_per_epoch = 100
         gradient_accumulation_steps = 2
         restart_epochs = 32
-        T_0 = (steps_per_epoch // gradient_accumulation_steps) * restart_epochs
+        T_0 = steps_per_epoch * restart_epochs
 
         scheduler = SteppedCosineRestartScheduler(
             optimizer,
@@ -821,7 +824,7 @@ class TestEpochToLRConversion:
         )
 
         # Check LR at various epochs
-        optimizer_steps_per_epoch = steps_per_epoch // gradient_accumulation_steps
+        optimizer_steps_per_epoch = steps_per_epoch
 
         for epoch in [0, 1, 16, 31, 32, 64, 128, 256, 512]:
             # Reset scheduler to test specific epoch
@@ -882,8 +885,8 @@ class TestEpochToLRConversion:
             gradient_accumulation_steps=2
         )
 
-        # T_0 should be: (100 / 2) * 32 = 1600
-        expected_T_0 = (100 // 2) * 32
+        # T_0 should be: 100 * 32 = 3200
+        expected_T_0 = 100 * 32
         assert scheduler.T_0 == expected_T_0, \
             f"Expected T_0={expected_T_0}, got {scheduler.T_0}"
 

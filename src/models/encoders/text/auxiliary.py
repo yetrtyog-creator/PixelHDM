@@ -21,14 +21,15 @@ if TYPE_CHECKING:
 
 class TextProjector(nn.Module):
     """
-    文本投影層。
+    Text Projector for aligning text embedding dimension to model hidden_dim.
 
-    當文本編碼器輸出維度與 DiT 不匹配時使用。
+    When input_dim == output_dim, this is an Identity for zero overhead.
+    When they differ, this applies a Linear projection.
 
     Args:
-        config: PixelHDMConfig
-        input_dim: 輸入維度
-        output_dim: 輸出維度
+        config: PixelHDMConfig (uses text_hidden_size -> hidden_dim)
+        input_dim: input dimension
+        output_dim: output dimension
     """
 
     def __init__(
@@ -45,29 +46,28 @@ class TextProjector(nn.Module):
 
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.proj = self._create_projection()
-
-    def _create_projection(self) -> nn.Module:
-        """創建投影層。"""
-        if self.input_dim == self.output_dim:
-            return nn.Identity()
-        proj = nn.Linear(self.input_dim, self.output_dim, bias=False)
-        nn.init.xavier_uniform_(proj.weight)
-        return proj
+        if input_dim == output_dim:
+            self.proj = nn.Identity()
+        else:
+            self.proj = nn.Linear(input_dim, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """前向傳播。"""
+        """Forward pass."""
         return self.proj(x)
 
     def extra_repr(self) -> str:
-        return f"input_dim={self.input_dim}, output_dim={self.output_dim}"
+        mode = "identity" if isinstance(self.proj, nn.Identity) else "linear"
+        return f"input_dim={self.input_dim}, output_dim={self.output_dim}, mode={mode}"
 
 
 class CaptionEmbedder(nn.Module):
     """
     Caption Embedder
 
-    整合文本編碼和投影。
+    整合文本編碼。
+
+    Note: TextProjector 會在需要時進行維度對齊。
+    輸出維度為 hidden_dim。
     """
 
     def __init__(
@@ -82,6 +82,8 @@ class CaptionEmbedder(nn.Module):
             encoder = Qwen3TextEncoder(config=config)
         self.encoder = encoder
         self.projector = TextProjector(config=config)
+        # Store actual output dim after projection
+        self._actual_output_dim = config.hidden_dim if config else 1024
 
     def forward(
         self,
@@ -89,7 +91,7 @@ class CaptionEmbedder(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         texts: Optional[Union[str, List[str]]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """前向傳播。"""
+        """前向傳播 - 返回投影後的文本嵌入。"""
         hidden_states, mask = self.encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -102,8 +104,8 @@ class CaptionEmbedder(nn.Module):
         return self.encoder.tokenize(texts)
 
     def get_output_dim(self) -> int:
-        """獲取輸出維度。"""
-        return self.projector.output_dim
+        """獲取輸出維度 (投影後維度)。"""
+        return self._actual_output_dim
 
 
 class NullTextEncoder(nn.Module):

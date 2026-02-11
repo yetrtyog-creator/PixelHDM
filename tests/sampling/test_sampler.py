@@ -555,8 +555,8 @@ class TestHeunSampler:
             sampler = UnifiedSampler(method="heun", num_steps=num_steps)
             nfe = sampler.count_nfe()
 
-            # Heun: NFE = 2*num_steps - 1 (last step is Euler)
-            expected = 2 * num_steps - 1
+            # Heun: NFE = 2*num_steps (predictor + corrector each step)
+            expected = 2 * num_steps
             assert nfe == expected, f"Expected NFE={expected}, got {nfe}"
 
     def test_heun_sampler_more_accurate_than_euler(self, dummy_model):
@@ -605,14 +605,11 @@ class TestHeunSampler:
             assert result.shape[0] == batch_size
 
     def test_heun_sampler_last_step_euler(self):
-        """Test that last step uses Euler (optimization)."""
-        # This is reflected in NFE count: 2*n - 1 instead of 2*n
+        """Test that Heun uses two evaluations per step."""
         sampler = UnifiedSampler(method="heun", num_steps=10)
         nfe = sampler.count_nfe()
 
-        # If all steps were Heun: 2*10 = 20
-        # With last step Euler: 2*10 - 1 = 19
-        assert nfe == 19
+        assert nfe == 20
 
     def test_heun_sampler_gradient_disabled(self, linear_model, sample_noise):
         """Test that gradients are disabled during Heun sampling."""
@@ -928,7 +925,7 @@ class TestUnifiedSampler:
 
         # Heun
         heun_sampler = UnifiedSampler(method="heun", num_steps=50)
-        assert heun_sampler.count_nfe() == 99  # 2*50 - 1
+        assert heun_sampler.count_nfe() == 100  # 2*50
 
         # DPM++
         dpmpp_sampler = UnifiedSampler(method="dpm_pp", num_steps=50)
@@ -941,8 +938,7 @@ class TestUnifiedSampler:
         assert euler_sampler.count_nfe(use_cfg=True) == 100  # 50 * 2
 
         heun_sampler = UnifiedSampler(method="heun", num_steps=50)
-        # Standard CFG with Heun falls back to per-step doubling
-        assert heun_sampler.count_nfe(use_cfg=True) == 100  # num_steps * 2
+        assert heun_sampler.count_nfe(use_cfg=True) == 200  # 2*num_steps * 2
 
     def test_unified_sampler_count_nfe_full_heun_cfg(self):
         """Test NFE counting with full Heun CFG."""

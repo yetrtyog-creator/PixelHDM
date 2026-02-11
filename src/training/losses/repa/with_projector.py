@@ -68,7 +68,9 @@ class REPALossWithProjector(REPALoss):
         h_proj = h_proj.flatten(2).permute(0, 2, 1)
 
         if h_proj.shape[1] != y.shape[1]:
-            h_proj = self._interpolate_features(h_proj, y.shape[1])
+            # Compute target H/W from DINO feature length (#14 fix)
+            H_target, W_target = self._compute_hw(y.shape[1], x_clean)
+            h_proj = self._interpolate_features(h_proj, H, W, H_target, W_target)
 
         h_norm = F.normalize(h_proj, dim=-1)
         y_norm = F.normalize(y, dim=-1)

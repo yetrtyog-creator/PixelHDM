@@ -9,6 +9,7 @@ Date: 2026-01-02
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -26,11 +27,67 @@ def validate_pixelhdm_config(config: "PixelHDMConfig") -> None:
         ValueError: If positive value constraints are violated.
     """
     _validate_positive_values(config)
+    _validate_time_config(config)
+    _validate_timestep_shift(config)
     _validate_head_dim(config)
     _validate_gqa_ratio(config)
     _validate_text_hidden_size(config)
     _validate_mrope_dimensions(config)
+    _validate_pixel_rope(config)
     _validate_pixel_dimensions(config)
+    _validate_text_processor(config)
+    _validate_image_processor(config)
+
+
+def _validate_time_config(config: "PixelHDMConfig") -> None:
+    """Validate time convention and prediction type.
+
+    Note:
+        Current implementation supports PixelHDM V-Prediction only.
+        Other modes must be implemented end-to-end before enabling.
+    """
+    if config.time_convention != "pixelhdm":
+        raise ValueError(
+            f"Unsupported time_convention '{config.time_convention}'. "
+            "Only 'pixelhdm' is supported."
+        )
+    if config.prediction_type != "v":
+        raise ValueError(
+            f"Unsupported prediction_type '{config.prediction_type}'. "
+            "Only 'v' (V-Prediction) is supported."
+        )
+
+
+def _validate_timestep_shift(config: "PixelHDMConfig") -> None:
+    """Validate dynamic timestep shift configuration."""
+    if not getattr(config, "use_dynamic_timestep_shift", False):
+        return
+
+    shift_type = getattr(config, "timestep_shift_type", "exponential")
+    if shift_type not in {"exponential", "linear"}:
+        raise ValueError(
+            f"Unsupported timestep_shift_type '{shift_type}'. "
+            "Only 'exponential' or 'linear' are supported."
+        )
+
+    base_seq = getattr(config, "timestep_shift_base_seq_len", 256)
+    max_seq = getattr(config, "timestep_shift_max_seq_len", 4096)
+    if max_seq <= base_seq:
+        raise ValueError(
+            f"timestep_shift_max_seq_len ({max_seq}) must be greater than "
+            f"timestep_shift_base_seq_len ({base_seq})."
+        )
+
+    # Check exponential shift no-op
+    fixed_shift = getattr(config, "timestep_shift_fixed", 3.0)
+    if shift_type == "exponential" and abs(fixed_shift - 1.0) < 1e-8:
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "DTS is enabled but timestep_shift_fixed=%.4f results in no shift "
+            "at max_seq_len (factor=1.0 everywhere). Consider setting "
+            "timestep_shift_fixed > 1.0 (e.g., 3.0 for SD3-style shift).",
+            fixed_shift,
+        )
 
 
 def _validate_positive_values(config: "PixelHDMConfig") -> None:
@@ -52,6 +109,8 @@ def _validate_positive_values(config: "PixelHDMConfig") -> None:
         ("time_embed_dim", config.time_embed_dim),
         ("max_patches", config.max_patches),
         ("default_num_steps", config.default_num_steps),
+        ("timestep_shift_base_seq_len", getattr(config, "timestep_shift_base_seq_len", 1)),
+        ("timestep_shift_max_seq_len", getattr(config, "timestep_shift_max_seq_len", 1)),
     ]
 
     for name, value in positive_int_fields:
@@ -66,6 +125,9 @@ def _validate_positive_values(config: "PixelHDMConfig") -> None:
         ("time_eps", config.time_eps),
         ("default_guidance_scale", config.default_guidance_scale),
         ("mrope_theta", config.mrope_theta),
+        ("timestep_shift_fixed", getattr(config, "timestep_shift_fixed", 3.0)),
+        ("timestep_shift_base_shift", getattr(config, "timestep_shift_base_shift", 0.5)),
+        ("timestep_shift_max_shift", getattr(config, "timestep_shift_max_shift", 1.15)),
     ]
 
     for name, value in positive_float_fields:
@@ -171,3 +233,72 @@ def _validate_pixel_dimensions(config: "PixelHDMConfig") -> None:
             f"p² × pixel_dim ({config.patch_size}² × {config.pixel_dim} = {p2_times_dpix}). "
             f"PixelUnpatchify will use Linear projection for feature expansion."
         )
+
+
+def _validate_image_processor(config: "PixelHDMConfig") -> None:
+    """Validate ImageProcessor configuration.
+
+    Args:
+        config: PixelHDMConfig instance to validate.
+
+    Note:
+        image_processor_layers=0 is valid and means no ImageProcessor (backward compatible).
+        ImageProcessor is a pre-joint block that does NOT use RoPE and uses timestep conditioning.
+    """
+    layers = getattr(config, "image_processor_layers", 0)
+    if layers < 0:
+        raise ValueError(
+            f"Configuration error: image_processor_layers must be >= 0, got {layers}"
+        )
+
+    mlp_ratio = getattr(config, "image_processor_mlp_ratio", None)
+    if mlp_ratio is not None and mlp_ratio <= 0:
+        raise ValueError(
+            f"Configuration error: image_processor_mlp_ratio must be positive, got {mlp_ratio}"
+        )
+
+    use_timestep = getattr(config, "image_processor_use_timestep", True)
+    if not isinstance(use_timestep, bool):
+        raise ValueError(
+            f"Configuration error: image_processor_use_timestep must be bool, got {use_timestep}"
+        )
+
+
+def _validate_pixel_rope(config: "PixelHDMConfig") -> None:
+    """Validate pixel path RoPE configuration."""
+    rope_type = getattr(config, "pixel_rope_type", "mrope")
+    if rope_type not in {"mrope", "rope2d"}:
+        raise ValueError(
+            f"Configuration error: pixel_rope_type must be 'mrope' or 'rope2d', got {rope_type}"
+        )
+
+    max_size = getattr(config, "pixel_rope_max_size", None)
+    if max_size is not None and max_size <= 0:
+        raise ValueError(
+            f"Configuration error: pixel_rope_max_size must be positive, got {max_size}"
+        )
+
+
+def _validate_text_processor(config: "PixelHDMConfig") -> None:
+    """Validate TextProcessor configuration.
+
+    Args:
+        config: PixelHDMConfig instance to validate.
+
+    Note:
+        text_processor_layers=0 is valid and means no TextProcessor.
+        TextProcessor is a pre-joint block that does NOT use RoPE or timestep.
+    """
+    layers = getattr(config, "text_processor_layers", 0)
+    if layers < 0:
+        raise ValueError(
+            f"Configuration error: text_processor_layers must be >= 0, got {layers}"
+        )
+
+    mlp_ratio = getattr(config, "text_processor_mlp_ratio", None)
+    if mlp_ratio is not None and mlp_ratio <= 0:
+        raise ValueError(
+            f"Configuration error: text_processor_mlp_ratio must be positive, got {mlp_ratio}"
+        )
+
+

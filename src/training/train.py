@@ -237,10 +237,18 @@ def main() -> None:
     _log_config_summary(model_config, training_config, text_encoder, training_desc)
 
     # Start training
-    logger.info(f"Starting training... (save every {training_config.save_interval} steps)")
+    save_desc = []
+    if training_config.save_interval > 0:
+        save_desc.append(f"every {training_config.save_interval} steps")
+    if getattr(training_config, "save_every_epochs", 0) > 0:
+        save_desc.append(f"every {training_config.save_every_epochs} epochs")
+    logger.info(f"Starting training... (save: {', '.join(save_desc) if save_desc else 'disabled'})")
     try:
         trainer.train(num_steps=num_steps, num_epochs=num_epochs, log_interval=training_config.log_interval,
-                      save_interval=training_config.save_interval, save_path=output_dir)
+                      save_interval=training_config.save_interval,
+                      save_every_epochs=training_config.save_every_epochs,
+                      log_every_epochs=training_config.log_every_epochs,
+                      save_path=output_dir)
     except KeyboardInterrupt:
         logger.info("Training interrupted")
         trainer.save_checkpoint(output_dir)

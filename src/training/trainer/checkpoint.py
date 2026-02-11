@@ -80,7 +80,7 @@ class CheckpointManager:
         path.mkdir(parents=True, exist_ok=True)
 
         checkpoint = self._build_checkpoint(state)
-        checkpoint_path = self._get_checkpoint_path(path, checkpoint_name, state.step)
+        checkpoint_path = self._get_checkpoint_path(path, checkpoint_name, state)
 
         # Atomic save: write to temp file first, then rename
         # This prevents corruption if save is interrupted
@@ -105,6 +105,8 @@ class CheckpointManager:
     def _build_checkpoint(self, state: TrainerState) -> Dict[str, Any]:
         """Build checkpoint dictionary."""
         checkpoint: Dict[str, Any] = {
+            "checkpoint_format_version": 2,
+            "step_unit": "optimizer",
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "state": {
@@ -144,12 +146,39 @@ class CheckpointManager:
             logger.debug("Sampler state saved to checkpoint")
 
     def _get_checkpoint_path(
-        self, path: Path, name: Optional[str], step: int
+        self, path: Path, name: Optional[str], state: TrainerState
     ) -> Path:
         """Get checkpoint file path."""
         if name is not None:
             return path / f"{name}.pt"
-        return path / f"checkpoint_step_{step}.pt"
+
+        epoch_for_name = self._epoch_for_checkpoint_name(state)
+        return path / f"checkpoint_epoch{epoch_for_name}_step{state.step}.pt"
+
+    def _epoch_for_checkpoint_name(self, state: TrainerState) -> int:
+        """Resolve 1-based epoch index for default periodic checkpoint naming."""
+        if state.step <= 0:
+            return max(1, state.epoch if state.epoch > 0 else 1)
+
+        steps_per_epoch = self._try_get_dataloader_len()
+        if steps_per_epoch is not None:
+            return max(1, ((state.step - 1) // steps_per_epoch) + 1)
+
+        if state.epoch > 0:
+            return state.epoch
+        return 1
+
+    def _try_get_dataloader_len(self) -> Optional[int]:
+        """Return dataloader length when available and valid."""
+        if self.dataloader is None:
+            return None
+        try:
+            dataloader_len = len(self.dataloader)
+        except TypeError:
+            return None
+        if dataloader_len <= 0:
+            return None
+        return dataloader_len
 
     def _cleanup_old_checkpoints(
         self,
@@ -198,7 +227,7 @@ class CheckpointManager:
             load_scheduler: Whether to load scheduler state
         """
         path = Path(path)
-        checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
 
         self._load_model(checkpoint)
         self._load_optimizer(checkpoint, load_optimizer)
@@ -261,6 +290,14 @@ class CheckpointManager:
 
     def _load_state(self, checkpoint: Dict[str, Any], state: TrainerState) -> None:
         """Load trainer state."""
+        fmt_version = checkpoint.get("checkpoint_format_version", 1)
+        if fmt_version < 2:
+            logger.warning(
+                "Loading checkpoint without format version (v1). "
+                "state.step may count batches rather than optimizer steps. "
+                "No automatic conversion is applied."
+            )
+
         saved_state = checkpoint.get("state", {})
         state.step = saved_state.get("step", 0)
         state.epoch = saved_state.get("epoch", 0)

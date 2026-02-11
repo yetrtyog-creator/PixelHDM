@@ -76,6 +76,7 @@ class Qwen3TextEncoder(nn.Module):
         self.model: Optional[nn.Module] = None
         self._loaded = False
         self._target_device: Optional[torch.device] = None  # 記錄目標設備
+        self._target_dtype: Optional[torch.dtype] = None  # 記錄目標精度
 
     def _init_from_config_or_args(
         self,
@@ -100,15 +101,40 @@ class Qwen3TextEncoder(nn.Module):
             return SUPPORTED_MODELS[self.model_name]["hidden_size"]
         return 1024  # 默認
 
-    def to(self, device: Optional[Union[str, torch.device]] = None, *args, **kwargs):
-        """重寫 to() 方法，記錄目標設備供懶加載使用。
+    def to(
+        self,
+        device: Optional[Union[str, torch.device]] = None,
+        dtype: Optional[torch.dtype] = None,
+        *args,
+        **kwargs
+    ):
+        """重寫 to() 方法，記錄目標設備和精度供懶加載使用。
 
-        解決問題：懶加載時 self.model=None，.to(device) 無效。
-        此方法記錄目標設備，在 _load_model() 時使用。
+        解決問題：
+        1. 懶加載時 self.model=None，.to(device) 無效。
+        2. dtype 參數可能被誤解析為 device（#7 修復）。
+
+        此方法記錄目標設備和精度，在 _load_model() 時使用。
+
+        Args:
+            device: 目標設備 (str 或 torch.device)
+            dtype: 目標精度 (torch.dtype)
         """
+        # Handle positional dtype (when called as .to(torch.float16))
+        if device is not None and isinstance(device, torch.dtype):
+            dtype = device
+            device = None
+
         if device is not None:
             self._target_device = torch.device(device) if isinstance(device, str) else device
-        return super().to(device, *args, **kwargs)
+        if dtype is not None:
+            self._target_dtype = dtype
+
+        # Also handle dtype from kwargs
+        if "dtype" in kwargs:
+            self._target_dtype = kwargs["dtype"]
+
+        return super().to(device, dtype=dtype, *args, **kwargs)
 
     @property
     def tokenizer(self) -> Any:
@@ -128,10 +154,16 @@ class Qwen3TextEncoder(nn.Module):
                 trust_remote_code=True,
                 device_map=self.device_map,
             )
-            # 移動到目標設備（解決懶加載時 .to(device) 無效的問題）
-            if self._target_device is not None:
-                self.model = self.model.to(self._target_device)
-            self.model.eval()
+            # 移動到目標設備和精度（解決懶加載時 .to() 無效的問題）
+            if self._target_device is not None or self._target_dtype is not None:
+                self.model = self.model.to(
+                    device=self._target_device,
+                    dtype=self._target_dtype,
+                )
+            if self.freeze:
+                self.model.eval()
+            else:
+                self.model.train()
             self._freeze_if_needed()
             self._loaded = True
         except Exception as e:
@@ -139,9 +171,10 @@ class Qwen3TextEncoder(nn.Module):
 
     def _freeze_if_needed(self) -> None:
         """根據配置凍結模型參數。"""
-        if self.freeze:
-            for param in self.model.parameters():
-                param.requires_grad = False
+        if self.model is None:
+            return
+        for param in self.model.parameters():
+            param.requires_grad = not self.freeze
 
     def _ensure_loaded(self) -> None:
         """確保模型已加載。"""
@@ -157,7 +190,6 @@ class Qwen3TextEncoder(nn.Module):
         self._ensure_loaded()
         return self._tokenizer_wrapper.tokenize(texts, return_tensors)
 
-    @torch.no_grad()
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
@@ -181,10 +213,21 @@ class Qwen3TextEncoder(nn.Module):
                 (hidden_states, attention_mask) 當 return_pooled=False
             如果 return_dict=True:
                 包含 hidden_states, attention_mask, pooled_output 的字典
+
+        Note:
+            當 self.freeze=True 時使用 no_grad 以節省記憶體；
+            當 self.freeze=False 時允許梯度流動以支援微調。
         """
         self._ensure_loaded()
         input_ids, attention_mask = self._prepare_inputs(input_ids, attention_mask, texts)
-        hidden_states = self._encode(input_ids, attention_mask)
+
+        # Use no_grad only when frozen (saves memory), allow gradients when training
+        if self.freeze:
+            with torch.no_grad():
+                hidden_states = self._encode(input_ids, attention_mask)
+        else:
+            hidden_states = self._encode(input_ids, attention_mask)
+
         return self._format_output(hidden_states, attention_mask, return_dict, return_pooled)
 
     def _prepare_inputs(

@@ -139,6 +139,7 @@ class PatchEmbedding(nn.Module):
         self.patch_size = patch_size
         self.hidden_dim = hidden_dim
         self.in_channels = in_channels
+        self.bottleneck_dim = bottleneck_dim
         self.p2 = patch_size ** 2
 
         input_dim = in_channels * self.p2
@@ -194,7 +195,7 @@ class PatchEmbedding(nn.Module):
         return x
 
     def extra_repr(self) -> str:
-        return f"patch_size={self.patch_size}, hidden_dim={self.hidden_dim}"
+        return f"patch_size={self.patch_size}, bottleneck_dim={self.bottleneck_dim}, hidden_dim={self.hidden_dim}"
 
 
 class PixelUnpatchify(nn.Module):
@@ -261,6 +262,9 @@ class PixelPatchify(nn.Module):
             pixel_dim = config.pixel_dim
             patch_size = config.patch_size
             out_channels = config.out_channels
+            self.zero_init_output = bool(getattr(config, "zero_init_output", False))
+        else:
+            self.zero_init_output = False
 
         self.pixel_dim = pixel_dim
         self.patch_size = patch_size
@@ -282,8 +286,12 @@ class PixelPatchify(nn.Module):
 
         修復：使用 Xavier 初始化，輸出 std ≈ 1.30，覆蓋率 113%
         """
-        nn.init.xavier_uniform_(self.proj.weight)
-        nn.init.zeros_(self.proj.bias)
+        if self.zero_init_output:
+            nn.init.zeros_(self.proj.weight)
+            nn.init.zeros_(self.proj.bias)
+        else:
+            nn.init.xavier_uniform_(self.proj.weight)
+            nn.init.zeros_(self.proj.bias)
 
     def forward(
         self,

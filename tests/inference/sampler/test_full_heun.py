@@ -241,6 +241,51 @@ class TestSampleWithFullHeunCFGBasic:
             assert step == i
             assert total == 5
 
+    def test_text_mask_is_passed_to_model(
+        self, full_heun_tester, sample_z, sample_text_embed
+    ):
+        """Test that text_mask is forwarded to the model."""
+        class MaskModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.last_text_mask = None
+
+            def forward(self, z, t, text_embed=None, text_mask=None, **kwargs):
+                self.last_text_mask = text_mask
+                return torch.zeros_like(z)
+
+        model = MaskModel()
+        text_mask = torch.ones(sample_text_embed.shape[0], sample_text_embed.shape[1])
+
+        full_heun_tester.sample_with_full_heun_cfg(
+            model=model,
+            z_0=sample_z,
+            text_embeddings=sample_text_embed,
+            text_mask=text_mask,
+            num_steps=1,
+            guidance_scale=1.0,
+        )
+
+        assert model.last_text_mask is not None
+        assert torch.equal(model.last_text_mask, text_mask)
+
+    def test_num_steps_zero_returns_input(
+        self, full_heun_tester, sample_z, sample_text_embed
+    ):
+        """num_steps=0 should return the input without calling the model."""
+        model = MockModel(velocity_mode="constant")
+
+        result = full_heun_tester.sample_with_full_heun_cfg(
+            model=model,
+            z_0=sample_z,
+            text_embeddings=sample_text_embed,
+            num_steps=0,
+            guidance_scale=1.0,
+        )
+
+        assert torch.allclose(result, sample_z)
+        assert model.call_count == 0
+
     def test_sampling_default_num_steps(
         self, full_heun_tester, sample_z, sample_text_embed
     ):
@@ -275,6 +320,7 @@ class TestFullHeunCFGStep:
         model = MockModel(velocity_mode="constant")
         t = torch.tensor([0.3])
         t_next = torch.tensor([0.5])
+        text_mask = torch.ones(sample_z.shape[0], sample_text_embed.shape[1], dtype=torch.bool)
 
         z_next = full_heun_tester._full_heun_cfg_step(
             model=model,
@@ -284,7 +330,9 @@ class TestFullHeunCFGStep:
             step_idx=0,
             num_steps=5,
             text_embeddings=sample_text_embed,
+            text_mask=text_mask,
             null_text_embeddings=None,
+            null_text_mask=None,
             guidance_scale=1.0,
         )
 
@@ -298,6 +346,8 @@ class TestFullHeunCFGStep:
         model = MockModel(velocity_mode="constant")
         t = torch.tensor([0.3])
         t_next = torch.tensor([0.5])
+        text_mask = torch.ones(sample_z.shape[0], sample_text_embed.shape[1], dtype=torch.bool)
+        null_text_mask = torch.ones(sample_z.shape[0], sample_null_text_embed.shape[1], dtype=torch.bool)
 
         z_next = full_heun_tester._full_heun_cfg_step(
             model=model,
@@ -307,7 +357,9 @@ class TestFullHeunCFGStep:
             step_idx=0,
             num_steps=5,
             text_embeddings=sample_text_embed,
+            text_mask=text_mask,
             null_text_embeddings=sample_null_text_embed,
+            null_text_mask=null_text_mask,
             guidance_scale=7.5,
         )
 
@@ -319,6 +371,8 @@ class TestFullHeunCFGStep:
     ):
         """Test that CFG calls both conditional and unconditional branches."""
         model = MockModel(velocity_mode="constant")
+        text_mask = torch.ones(sample_z.shape[0], sample_text_embed.shape[1], dtype=torch.bool)
+        null_text_mask = torch.ones(sample_z.shape[0], sample_null_text_embed.shape[1], dtype=torch.bool)
 
         full_heun_tester._full_heun_cfg_step(
             model=model,
@@ -328,7 +382,9 @@ class TestFullHeunCFGStep:
             step_idx=0,
             num_steps=5,
             text_embeddings=sample_text_embed,
+            text_mask=text_mask,
             null_text_embeddings=sample_null_text_embed,
+            null_text_mask=null_text_mask,
             guidance_scale=7.5,
         )
 
@@ -460,6 +516,8 @@ class TestCFGFormulaVerification:
         # uncond text embed (mean < 0) -> v = 0.2
         cond_embed = torch.randn(2, 77, 1024) + 2.0
         uncond_embed = torch.randn(2, 77, 1024) - 2.0
+        text_mask = torch.ones(2, 77, dtype=torch.bool)
+        null_text_mask = torch.ones(2, 77, dtype=torch.bool)
 
         guidance_scale = 3.0
         dt = 0.2
@@ -472,7 +530,9 @@ class TestCFGFormulaVerification:
             step_idx=4,  # Last step for Euler (simpler)
             num_steps=5,
             text_embeddings=cond_embed,
+            text_mask=text_mask,
             null_text_embeddings=uncond_embed,
+            null_text_mask=null_text_mask,
             guidance_scale=guidance_scale,
         )
 
@@ -488,6 +548,8 @@ class TestCFGFormulaVerification:
     ):
         """Test that guidance_scale=1.0 with uncond gives cond result."""
         model = MockModel(velocity_mode="conditional_varying")
+        text_mask = torch.ones(sample_z.shape[0], sample_text_embed.shape[1], dtype=torch.bool)
+        null_text_mask = torch.ones(sample_z.shape[0], sample_null_text_embed.shape[1], dtype=torch.bool)
 
         # With scale=1.0: v_final = v_uncond + 1.0 * (v_cond - v_uncond) = v_cond
         z_next_cfg = full_heun_tester._full_heun_cfg_step(
@@ -498,7 +560,9 @@ class TestCFGFormulaVerification:
             step_idx=4,
             num_steps=5,
             text_embeddings=sample_text_embed,
+            text_mask=text_mask,
             null_text_embeddings=sample_null_text_embed,
+            null_text_mask=null_text_mask,
             guidance_scale=1.0,
         )
 
@@ -515,6 +579,8 @@ class TestCFGFormulaVerification:
         model = MockModel(velocity_mode="conditional_varying")
         cond_embed = torch.randn(2, 77, 1024) + 2.0
         uncond_embed = torch.randn(2, 77, 1024) - 2.0
+        text_mask = torch.ones(2, 77, dtype=torch.bool)
+        null_text_mask = torch.ones(2, 77, dtype=torch.bool)
 
         # With scale=0.0: v_final = v_uncond + 0 * (...) = v_uncond
         # Note: Code checks guidance_scale > 1.0, so scale=0.0 won't use CFG
@@ -526,7 +592,9 @@ class TestCFGFormulaVerification:
             step_idx=4,
             num_steps=5,
             text_embeddings=cond_embed,
+            text_mask=text_mask,
             null_text_embeddings=uncond_embed,
+            null_text_mask=null_text_mask,
             guidance_scale=0.0,
         )
 
@@ -537,12 +605,17 @@ class TestCFGFormulaVerification:
 
 
 # =============================================================================
-# Test Class: pooled_text_embed Separation
+# Test Class: pooled_text_embed Separation (DEPRECATED - removed 2026-02-02)
 # =============================================================================
 
 
+@pytest.mark.skip(reason="pooled_text_embed removed on 2026-02-02 per CLAUDE.md")
 class TestPooledTextEmbedSeparation:
-    """Test pooled_text_embed correct separation (cond vs uncond)."""
+    """Test pooled_text_embed correct separation (cond vs uncond).
+
+    DEPRECATED: pooled_text_embed was removed on 2026-02-02.
+    See CLAUDE.md for details.
+    """
 
     def test_pooled_embed_passed_to_cond_branch(
         self, full_heun_tester, sample_z, sample_text_embed, sample_pooled_embed

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 from PIL import Image
 
 from .generator import AspectRatioBucket
+from ..constants import IMAGE_EXTENSIONS
 
 if TYPE_CHECKING:
     from ...config.model_config import PixelHDMConfig, DataConfig
@@ -30,9 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 # 支援的圖片副檔名 (與 dataset 模塊保持一致)
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff", ".tif"}
-
-
 class AdaptiveBufferManager:
     """
     自適應緩衝區管理器
@@ -126,10 +124,6 @@ class AdaptiveBufferManager:
             "utilization": utilization,
             "max_buffer_mb": self.max_buffer_bytes / (1024 * 1024),
         }
-
-
-# 支援的圖片副檔名
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 
 def scan_images_for_buckets(

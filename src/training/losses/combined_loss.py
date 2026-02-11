@@ -150,9 +150,10 @@ class CombinedLoss(nn.Module):
             v_pred, x_clean, noise
         )
 
-        # 2. Frequency Loss
+        # 2. Frequency Loss (image space: x_pred = v_pred + noise)
         if self.freq_loss.enabled:
-            loss_freq = self.freq_loss(v_pred_out, v_target)
+            x_pred = v_pred_out + noise
+            loss_freq = self.freq_loss(x_pred, x_clean)
         else:
             loss_freq = torch.tensor(0.0, device=v_pred.device, dtype=v_pred.dtype)
 
@@ -244,9 +245,10 @@ class CombinedLossSimple(nn.Module):
             v_pred, x_clean, noise
         )
 
-        # Frequency Loss
+        # Frequency Loss (image space: x_pred = v_pred + noise)
         if self.freq_loss.enabled:
-            loss_freq = self.freq_loss(v_pred_out, v_target)
+            x_pred = v_pred_out + noise
+            loss_freq = self.freq_loss(x_pred, x_clean)
         else:
             loss_freq = torch.tensor(0.0, device=v_pred.device, dtype=v_pred.dtype)
 

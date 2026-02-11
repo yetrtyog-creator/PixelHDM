@@ -9,7 +9,7 @@ Date: 2026-01-02
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 
@@ -37,19 +37,38 @@ class PixelHDMConfig:
     # MLP configuration
     mlp_ratio: float = 3.0
     mlp_type: Literal["swiglu", "gelu"] = "swiglu"
-    bottleneck_dim: int = 256
+    # Bottleneck dimension for PatchEmbedding
+    # Default: patch_size^2 // 4 (e.g., 16^2 // 4 = 64 for patch_size=16)
+    # Set explicitly to override automatic calculation
+    bottleneck_dim: Optional[int] = None
 
     # Input/Output
     in_channels: int = 3
     out_channels: int = 3
     max_resolution: int = 1024
 
-    # Time convention (PixelHDM style)
+    # Time convention (PixelHDM style / Rectified Flow)
+    # NOTE: 這些配置僅供文檔參考。實際代碼固定使用 PixelHDM V-Prediction:
+    #   - time_convention: 固定為 "pixelhdm" (t=0 noise, t=1 clean)
+    #   - prediction_type: 固定為 "v" (V-Prediction: v = x - noise)
+    #   - 插值公式: z_t = t * x + (1 - t) * noise
+    # 修改這些值不會改變模型行為，如需支持其他模式請修改 flow_matching/training.py
     time_convention: Literal["pixelhdm", "rectified"] = "pixelhdm"
-    prediction_type: Literal["x", "v", "eps"] = "x"
-    time_p_mean: float = 0.0
-    time_p_std: float = 1.0
-    time_eps: float = 0.05
+    prediction_type: Literal["x", "v", "eps"] = "v"  # V-Prediction: v = x - noise
+    # Logit-Normal 時間採樣參數 (訓練時使用)
+    time_p_mean: float = 0.0  # SD3 style, JiT uses -0.8
+    time_p_std: float = 1.0   # SD3 style, JiT uses 0.8
+    time_eps: float = 0.0001    # 時間邊界 epsilon
+
+    # Dynamic Timestep Shift (Resolution-dependent)
+    use_dynamic_timestep_shift: bool = True
+    timestep_shift_type: Literal["exponential", "linear"] = "exponential"
+    timestep_shift_fixed: float = 3.0
+    timestep_shift_base_shift: float = 0.5
+    timestep_shift_max_shift: float = 1.15
+    timestep_shift_base_seq_len: int = 256
+    timestep_shift_max_seq_len: int = 4096
+    timestep_shift_clamp_linear: bool = True
 
     # REPA Configuration
     repa_enabled: bool = True
@@ -82,7 +101,7 @@ class PixelHDMConfig:
     # Dropout
     dropout: float = 0.0
     attention_dropout: float = 0.0
-    cfg_dropout: float = 0.1
+    cfg_dropout: float = 0.0
 
     # Optimization
     use_flash_attention: bool = True
@@ -99,12 +118,31 @@ class PixelHDMConfig:
     mrope_img_max_width: int = 128   # Max patches in width (explicit, no sqrt)
     mrope_theta: float = 10000.0
 
+    # Pixel path RoPE (image-only attention)
+    pixel_rope_type: Literal["mrope", "rope2d"] = "rope2d"
+    pixel_rope_max_size: Optional[int] = None
+
     # Embedding Configuration
     time_embed_dim: int = 256
     max_patches: int = 4096
 
     # Token Compaction
     token_compaction_expand_gain: float = 0.1  # TODO: needs proper fix, see plan
+
+    # Text Processor (Pre-joint, modality-internal)
+    # Processes text tokens before concatenation with image for joint attention
+    # Key design: NO RoPE (position encoding only in joint mRoPE), NO timestep/AdaLN
+    text_processor_layers: int = 2  # 0 = skip, 1+ = use processor
+    text_processor_mlp_ratio: Optional[float] = None  # None = use mlp_ratio
+    text_processor_use_qk_norm: bool = True
+
+    # Image Processor (Pre-joint, modality-internal)
+    # Processes image tokens before concatenation with text for joint attention
+    # Key design: NO RoPE (position encoding only in joint mRoPE), timestep via TokenAdaLN
+    image_processor_layers: int = 2  # 0 = skip, 1+ = use processor
+    image_processor_mlp_ratio: Optional[float] = None  # None = use mlp_ratio
+    image_processor_use_qk_norm: bool = True
+    image_processor_use_timestep: bool = True
 
     # Gated Attention
     gate_type: Literal["headwise", "elementwise"] = "headwise"
@@ -124,7 +162,20 @@ class PixelHDMConfig:
     default_sampler_method: Literal["euler", "heun", "dpm_pp", "dpm_pp_2s"] = "heun"
 
     def __post_init__(self):
-        """Validate configuration after initialization."""
+        """Compute defaults and validate configuration after initialization."""
+        # Compute bottleneck_dim default if not provided
+        # Formula: patch_size^2 // 4 (e.g., 16^2 // 4 = 64)
+        if self.bottleneck_dim is None:
+            object.__setattr__(self, 'bottleneck_dim', self.patch_size ** 2 // 4)
+
+        # Compute text_processor_mlp_ratio default if not provided
+        if self.text_processor_mlp_ratio is None:
+            object.__setattr__(self, 'text_processor_mlp_ratio', self.mlp_ratio)
+
+        # Compute image_processor_mlp_ratio default if not provided
+        if self.image_processor_mlp_ratio is None:
+            object.__setattr__(self, 'image_processor_mlp_ratio', self.mlp_ratio)
+
         from .validators import validate_pixelhdm_config
         validate_pixelhdm_config(self)
 

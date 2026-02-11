@@ -309,8 +309,8 @@ class TestFrequencyLossForward:
         FrequencyLoss operates on velocity (v_theta, v_target) from VLoss.
         """
         loss = freq_loss(
-            v_pred=sample_tensors["v_pred"],
-            v_target=sample_tensors["v_target"],
+            pred=sample_tensors["v_pred"],
+            target=sample_tensors["v_target"],
         )
 
         assert loss.dim() == 0, f"Expected scalar, got {loss.dim()}D"
@@ -324,8 +324,8 @@ class TestFrequencyLossForward:
         Test that disabled FrequencyLoss returns zero.
         """
         loss = freq_loss_disabled(
-            v_pred=sample_tensors["v_pred"],
-            v_target=sample_tensors["v_target"],
+            pred=sample_tensors["v_pred"],
+            target=sample_tensors["v_target"],
         )
 
         assert loss.item() == 0.0, f"Expected 0.0, got {loss.item()}"
@@ -339,7 +339,7 @@ class TestFrequencyLossForward:
         v_target = torch.randn(B, C, H * 2, W)  # Different height
 
         with pytest.raises(RuntimeError):
-            freq_loss(v_pred=v_pred, v_target=v_target)
+            freq_loss(pred=v_pred, target=v_target)
 
     def test_float32_computation(self, freq_loss: FrequencyLoss) -> None:
         """
@@ -349,7 +349,7 @@ class TestFrequencyLossForward:
         v_pred = torch.randn(B, C, H, W, dtype=torch.float16)
         v_target = torch.randn(B, C, H, W, dtype=torch.float16)
 
-        loss = freq_loss(v_pred=v_pred, v_target=v_target)
+        loss = freq_loss(pred=v_pred, target=v_target)
 
         # Loss should be returned in original dtype
         assert loss.dtype == torch.float16, \
@@ -364,7 +364,7 @@ class TestFrequencyLossForward:
         v_pred = torch.zeros(B, C, H, W)
         v_target = torch.zeros(B, C, H, W)
 
-        loss = freq_loss(v_pred=v_pred, v_target=v_target)
+        loss = freq_loss(pred=v_pred, target=v_target)
 
         assert loss.item() == 0.0 or loss.item() < 1e-10, \
             f"Expected near-zero loss for zero velocity, got {loss.item()}"
@@ -376,7 +376,7 @@ class TestFrequencyLossForward:
         B, C, H, W = 2, 3, 64, 64
         v = torch.randn(B, C, H, W)
 
-        loss = freq_loss(v_pred=v, v_target=v.clone())
+        loss = freq_loss(pred=v, target=v.clone())
 
         assert loss.item() < 1e-6, \
             f"Expected near-zero loss for identical tensors, got {loss.item()}"
@@ -400,7 +400,7 @@ class TestFrequencyLossForward:
             v_pred = torch.randn(B, C, H, W)
             v_target = torch.randn(B, C, H, W)
 
-            loss = freq_loss(v_pred=v_pred, v_target=v_target)
+            loss = freq_loss(pred=v_pred, target=v_target)
 
             assert not torch.isnan(loss), f"Loss is NaN for resolution {H}x{W}"
             assert loss >= 0, f"Loss should be non-negative for resolution {H}x{W}"

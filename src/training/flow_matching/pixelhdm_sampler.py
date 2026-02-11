@@ -24,6 +24,12 @@ class PixelHDMSampler:
     """
     PixelHDM Sampler for inference (V-Prediction).
 
+    .. deprecated::
+        Use UnifiedSampler from src.inference.sampler.unified instead.
+        This legacy sampler does not support:
+        - Logit-Normal timestep distribution
+        - Dynamic Timestep Shift (DTS)
+
     Args:
         num_steps: Number of sampling steps
         method: Sampling method ("euler" or "heun")
@@ -34,7 +40,7 @@ class PixelHDMSampler:
         self,
         num_steps: int = 50,
         method: str = "heun",
-        t_eps: float = 0.05,
+        t_eps: float = 0.0001,
     ) -> None:
         self.num_steps = num_steps
         self.method = method
@@ -46,7 +52,7 @@ class PixelHDMSampler:
         dtype: torch.dtype = torch.float32,
     ) -> torch.Tensor:
         """Get sampling timesteps (PixelHDM: from t_eps to 1-t_eps)."""
-        num_steps = num_steps or self.num_steps
+        num_steps = num_steps if num_steps is not None else self.num_steps
         return get_sampling_timesteps(num_steps, device, dtype, self.t_eps)
 
     def v_to_x(
@@ -75,11 +81,24 @@ class PixelHDMSampler:
         **model_kwargs,
     ) -> torch.Tensor:
         """Predict velocity with optional CFG."""
+        if "text_embed" in model_kwargs:
+            raise ValueError(
+                "text_embed should be passed via the text_embeddings argument, "
+                "not in model_kwargs."
+            )
+        if "text_embeddings" in model_kwargs:
+            if text_embeddings is not None:
+                raise ValueError(
+                    "text_embeddings provided both as argument and in model_kwargs."
+                )
+            model_kwargs = dict(model_kwargs)
+            text_embeddings = model_kwargs.pop("text_embeddings")
+
         if guidance_scale > 1.0 and null_text_embeddings is not None:
-            v_uncond = model(z, t, text_embeddings=null_text_embeddings, **model_kwargs)
-            v_cond = model(z, t, text_embeddings=text_embeddings, **model_kwargs)
+            v_uncond = model(z, t, text_embed=null_text_embeddings, **model_kwargs)
+            v_cond = model(z, t, text_embed=text_embeddings, **model_kwargs)
             return v_uncond + guidance_scale * (v_cond - v_uncond)
-        return model(z, t, text_embeddings=text_embeddings, **model_kwargs)
+        return model(z, t, text_embed=text_embeddings, **model_kwargs)
 
     def _heun_step(
         self, model: Callable, z: torch.Tensor, t: torch.Tensor,
@@ -109,7 +128,7 @@ class PixelHDMSampler:
         **model_kwargs,
     ) -> torch.Tensor:
         """Generate sample from noise."""
-        num_steps = num_steps or self.num_steps
+        num_steps = num_steps if num_steps is not None else self.num_steps
         device, dtype = z_0.device, z_0.dtype
         timesteps = self.get_timesteps(num_steps, device, dtype)
         z = z_0

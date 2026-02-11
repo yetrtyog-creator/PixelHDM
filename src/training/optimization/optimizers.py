@@ -150,10 +150,13 @@ def create_optimizer(
         lr_scale_patterns=kwargs.get("lr_scale_patterns"),
     )
 
-    # 設置基礎學習率
+    # 設置基礎學習率和 initial_lr (供 warmup 使用)
     for group in param_groups:
         lr_scale = group.pop("lr_scale", 1.0)
-        group["lr"] = lr * lr_scale
+        scaled_lr = lr * lr_scale
+        group["lr"] = scaled_lr
+        # Store initial_lr for warmup to preserve per-group lr_scale (#8 fix)
+        group["initial_lr"] = scaled_lr
 
     optimizer_type = optimizer_type.lower()
 

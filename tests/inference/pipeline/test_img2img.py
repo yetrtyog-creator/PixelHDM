@@ -125,6 +125,14 @@ class TestImagePreprocessing:
         assert tensor.shape[1] == 240
         assert tensor.shape[2] == 240
 
+    def test_preprocess_small_image_raises(self, mock_model: MockModel, mock_text_encoder: MockTextEncoder):
+        """Test small images raise an error instead of resizing to 0."""
+        pipeline = PixelHDMPipelineForImg2Img(mock_model, mock_text_encoder)
+
+        small = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
+        with pytest.raises(ValueError, match="smaller than patch_size"):
+            pipeline._preprocess_image(small)
+
     def test_preprocess_value_range(self, mock_model: MockModel, mock_text_encoder: MockTextEncoder):
         """Test preprocessed values are in [-1, 1] range."""
         pipeline = PixelHDMPipelineForImg2Img(mock_model, mock_text_encoder)

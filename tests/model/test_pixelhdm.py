@@ -242,8 +242,8 @@ class TestPixelHDMForwardPass:
         text_embed = batch_data["text_emb"]
         text_mask = batch_data["text_mask"]
 
-        # Call internal method
-        joint_tokens, joint_mask, text_len = pixelhdm_model._create_joint_sequence(
+        # Call internal method (returns 4 values: tokens, mask, text_len, text_only_mask)
+        joint_tokens, joint_mask, text_len, text_only_mask = pixelhdm_model._create_joint_sequence(
             img_tokens, text_embed, text_mask
         )
 
@@ -259,14 +259,19 @@ class TestPixelHDMForwardPass:
         assert joint_mask.shape == (B, expected_joint_len), \
             f"Joint mask shape {joint_mask.shape} != expected ({B}, {expected_joint_len})"
 
+        # Check text_only_mask shape
+        assert text_only_mask.shape == (B, T), \
+            f"Text only mask shape {text_only_mask.shape} != expected ({B}, {T})"
+
         # Test without text embedding
-        joint_tokens_no_text, joint_mask_no_text, text_len_no_text = \
+        joint_tokens_no_text, joint_mask_no_text, text_len_no_text, text_only_mask_no_text = \
             pixelhdm_model._create_joint_sequence(img_tokens, None, None)
 
         assert joint_tokens_no_text.shape == (B, L, D), \
             "Without text, joint tokens should equal img tokens"
         assert joint_mask_no_text is None, "Without text, joint mask should be None"
         assert text_len_no_text == 0, "Without text, text_len should be 0"
+        assert text_only_mask_no_text is None, "Without text, text_only_mask should be None"
 
 
 # ============================================================================

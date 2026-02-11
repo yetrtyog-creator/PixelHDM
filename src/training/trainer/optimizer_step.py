@@ -24,6 +24,9 @@ class OptimizerStepMixin:
 
     Handles gradient clipping, optimizer updates, and learning rate scheduling.
 
+    After Phase C refactor, step is always an optimizer step (not batch step).
+    The accumulation check has been moved to the loop/core level.
+
     Requires host class to have:
         - self.optimizer: torch.optim.Optimizer
         - self.scaler: Optional[GradScaler]
@@ -31,7 +34,6 @@ class OptimizerStepMixin:
         - self.zclip: ZClip
         - self.cpu_checkpoint: Optional[CPUMemoryCheckpoint]
         - self.ema: Optional[EMA]
-        - self.gradient_accumulation_steps: int
         - self.max_grad_norm: float
     """
 
@@ -43,12 +45,19 @@ class OptimizerStepMixin:
         warmup_fn: Optional[Callable[[int], None]],
         warmup_steps: int,
     ) -> float:
-        """Execute optimizer step if not accumulating."""
-        from ..optimization import clip_grad_norm_with_zclip
+        """Execute optimizer step. Always steps (no accumulation check).
 
-        is_accumulating = (step + 1) % self.gradient_accumulation_steps != 0
-        if is_accumulating:
-            return 0.0
+        Args:
+            step: Current optimizer step (NOT batch step).
+            loss_value: Average loss for the accumulation window.
+            lr_scheduler: LR scheduler (expects optimizer steps).
+            warmup_fn: Warmup function (called with optimizer step).
+            warmup_steps: Number of warmup steps (in optimizer steps).
+
+        Returns:
+            Gradient norm after clipping.
+        """
+        from ..optimization import clip_grad_norm_with_zclip
 
         spike_restored = self._check_loss_spike(loss_value, step)
         if spike_restored:
@@ -61,11 +70,15 @@ class OptimizerStepMixin:
         return grad_norm
 
     def _check_loss_spike(self, loss_value: float, step: int) -> bool:
-        """Check for loss spike and restore if needed."""
+        """Check for loss spike and restore if needed.
+
+        Also saves/restores GradScaler state for fp16 training stability.
+        """
         if self.cpu_checkpoint is None:
             return False
         return self.cpu_checkpoint.step(
-            self.model, self.optimizer, self.ema, loss_value, step
+            self.model, self.optimizer, self.ema, loss_value, step,
+            scaler=self.scaler
         )
 
     def _clip_and_step(self, clip_fn: callable) -> float:
@@ -91,17 +104,21 @@ class OptimizerStepMixin:
         warmup_fn: Optional[Callable[[int], None]],
         warmup_steps: int,
     ) -> None:
-        """Update learning rate."""
+        """Update learning rate.
+
+        Args:
+            step: Current optimizer step (already in optimizer-step units).
+            lr_scheduler: LR scheduler.
+            warmup_fn: Warmup function.
+            warmup_steps: Number of warmup steps (in optimizer steps).
+        """
         if step < warmup_steps and warmup_fn is not None:
             warmup_fn(step)
         elif lr_scheduler is not None:
             lr_scheduler.step()
 
     def _update_ema(self, step: int) -> None:
-        """Update EMA weights."""
-        is_accumulating = (step + 1) % self.gradient_accumulation_steps != 0
-        if is_accumulating:
-            return
+        """Update EMA weights. Always updates (called once per optimizer step)."""
         if self.ema is not None:
             self.ema.update(self.model, step)
 

@@ -28,6 +28,24 @@ def parse_model_config(data: dict) -> PixelHDMConfig:
             model_data["time_p_mean"] = flow_matching["P_mean"]
         if "P_std" in flow_matching:
             model_data["time_p_std"] = flow_matching["P_std"]
+        dts = flow_matching.get("dynamic_timestep_shift", {})
+        if isinstance(dts, dict) and dts:
+            if "enabled" in dts:
+                model_data["use_dynamic_timestep_shift"] = dts["enabled"]
+            if "shift_type" in dts:
+                model_data["timestep_shift_type"] = dts["shift_type"]
+            if "fixed_shift" in dts:
+                model_data["timestep_shift_fixed"] = dts["fixed_shift"]
+            if "base_shift" in dts:
+                model_data["timestep_shift_base_shift"] = dts["base_shift"]
+            if "max_shift" in dts:
+                model_data["timestep_shift_max_shift"] = dts["max_shift"]
+            if "base_seq_len" in dts:
+                model_data["timestep_shift_base_seq_len"] = dts["base_seq_len"]
+            if "max_seq_len" in dts:
+                model_data["timestep_shift_max_seq_len"] = dts["max_seq_len"]
+            if "clamp_linear" in dts:
+                model_data["timestep_shift_clamp_linear"] = dts["clamp_linear"]
 
     return PixelHDMConfig(**model_data) if model_data else PixelHDMConfig()
 
@@ -89,6 +107,8 @@ def _parse_gradient_section(train_data: dict, flat: dict) -> None:
 
     if "accumulation_steps" in grad:
         flat["gradient_accumulation_steps"] = grad["accumulation_steps"]
+    if "drop_last_accumulation" in grad:
+        flat["drop_last_accumulation"] = grad["drop_last_accumulation"]
     if "max_norm" in grad:
         flat["max_grad_norm"] = grad["max_norm"]
     if "zclip_threshold" in grad:
@@ -119,6 +139,7 @@ def _parse_lr_schedule_section(train_data: dict, flat: dict) -> None:
         "schedule_type": "lr_scheduler",
         "warmup_steps": "warmup_steps",
         "min_lr": "min_lr",
+        "num_cycles": "num_cycles",
         "restart_epochs": "restart_epochs",
         "restart_period": "restart_period",
         "lr_decay_per_cycle": "lr_decay_per_cycle",
@@ -230,6 +251,7 @@ def _merge_multi_resolution_section(multi_res_cfg: dict, data_cfg: dict) -> None
         "chunk_size": "chunk_size",
         "shuffle_chunks": "shuffle_chunks",
         "shuffle_within_bucket": "shuffle_within_bucket",
+        "drop_last": "drop_last",
     }
 
     for src, dst in field_mapping.items():

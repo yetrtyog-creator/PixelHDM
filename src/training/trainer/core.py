@@ -110,12 +110,11 @@ class Trainer:
             self._checkpoint_manager.set_lr_scheduler(self._lr_scheduler)
 
             # Sync scheduler to current step ONLY if NOT reset
-            # CRITICAL: Convert batch steps to optimizer steps!
-            # state.step = batch steps (increments every batch)
-            # scheduler expects optimizer steps (increments every gradient_accumulation_steps batches)
+            # CRITICAL: state.step is optimizer-step semantics.
+            # Scheduler sync must use the same unit directly.
             # When reset_scheduler=True, skip sync to start fresh from cycle 0
             if self.state.step > 0 and not self._scheduler_skip_sync:
-                optimizer_steps = self.state.step // self.gradient_accumulation_steps
+                optimizer_steps = self.state.step
                 self._sync_scheduler_to_step(optimizer_steps)
             # Reset flag after use
             self._scheduler_skip_sync = False
@@ -177,10 +176,24 @@ class Trainer:
     def train_step(self, batch: Dict[str, torch.Tensor]) -> TrainMetrics:
         """Execute single training step."""
         warmup_steps = self.training_config.warmup_steps if self.training_config else 0
-        metrics, batch_size = self._step_executor.execute(
-            batch, self.state.step, lr_scheduler=self.lr_scheduler,
-            warmup_fn=self._warmup_lr, warmup_steps=warmup_steps,
-        )
+        if isinstance(batch, list):
+            if len(batch) == 0:
+                raise ValueError("train_step received empty micro-batch list")
+            self._step_executor.reset_accumulators()
+            denom = len(batch)
+            for micro_batch in batch:
+                self._step_executor.forward_backward(
+                    micro_batch, step=self.state.step, denom=denom
+                )
+            metrics, batch_size = self._step_executor.optimizer_step_and_metrics(
+                self.state.step, lr_scheduler=self.lr_scheduler,
+                warmup_fn=self._warmup_lr, warmup_steps=warmup_steps,
+            )
+        else:
+            metrics, batch_size = self._step_executor.execute(
+                batch, self.state.step, lr_scheduler=self.lr_scheduler,
+                warmup_fn=self._warmup_lr, warmup_steps=warmup_steps,
+            )
         self.state.step += 1
         self.state.total_samples += batch_size
         return metrics

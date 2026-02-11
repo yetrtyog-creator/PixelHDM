@@ -706,7 +706,7 @@ class TestCheckpointCleanup:
 
         # Verify it's the latest 2
         checkpoint_steps = sorted([
-            int(p.stem.split("_")[-1]) for p in checkpoints
+            int(p.stem.rsplit("step", 1)[-1]) for p in checkpoints
         ])
         assert checkpoint_steps == [30, 40], \
             f"Expected steps [30, 40], got {checkpoint_steps}"
@@ -758,7 +758,7 @@ class TestCheckpointCleanup:
             f"Expected 1 checkpoint, found {len(checkpoints)}"
 
         # Should be the latest
-        assert checkpoints[0].stem == "checkpoint_step_300"
+        assert checkpoints[0].stem == "checkpoint_epoch1_step300"
 
     def test_named_checkpoints_not_deleted(self, simple_model, temp_checkpoint_dir):
         """Verify named checkpoints (like best_model) are not deleted by cleanup."""
@@ -925,8 +925,9 @@ class TestLRSchedulerRestart:
         # Force scheduler creation
         scheduler = trainer.lr_scheduler
 
-        # T_0 should be: (100 batches / 2 accum) * 4 epochs = 200 optimizer steps
-        expected_t0 = (100 // accumulation_steps) * restart_epochs
+        # T_0 should be: 100 batches * 4 epochs = 400 optimizer steps
+        _ = accumulation_steps
+        expected_t0 = 100 * restart_epochs
         assert scheduler.T_0 == expected_t0, \
             f"T_0 should be {expected_t0}, got {scheduler.T_0}"
 

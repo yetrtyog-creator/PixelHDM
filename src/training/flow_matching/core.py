@@ -19,7 +19,7 @@ def create_flow_matching(
     config: Optional["PixelHDMConfig"] = None,
     p_mean: float = 0.0,   # SD3/PixelHDM convention
     p_std: float = 1.0,    # SD3/PixelHDM convention
-    t_eps: float = 0.05,
+    t_eps: float = 0.0001,
 ) -> PixelHDMFlowMatching:
     """Create Flow Matching module."""
     return PixelHDMFlowMatching(
@@ -33,7 +33,7 @@ def create_flow_matching(
 def create_sampler(
     num_steps: int = 50,
     method: str = "heun",
-    t_eps: float = 0.05,
+    t_eps: float = 0.0001,
 ) -> PixelHDMSampler:
     """Create sampler."""
     return PixelHDMSampler(

@@ -76,8 +76,9 @@ class TrainingConfig:
         lr_scheduler: Scheduler type ('cosine', 'cosine_restart', etc.).
         warmup_steps: Number of warmup steps.
         min_lr: Minimum learning rate.
-        restart_epochs: Epochs per cosine restart cycle.
-        restart_period: Steps per restart (0=use restart_epochs).
+        num_cycles: Total number of LR restart cycles (0=use restart_epochs).
+        restart_epochs: Epochs per cycle (ignored if num_cycles > 0).
+        restart_period: Steps per cycle (overrides both num_cycles and restart_epochs).
         lr_decay_per_cycle: Peak LR decay factor per cycle.
         stepped_cosine_restart: Stepped cosine restart config (takes priority).
 
@@ -130,8 +131,9 @@ class TrainingConfig:
     lr_scheduler: str = "cosine"
     warmup_steps: int = 0
     min_lr: float = 1e-5
-    restart_epochs: int = 4
-    restart_period: int = 0
+    num_cycles: int = 0  # Total number of LR cycles (0=use restart_epochs instead)
+    restart_epochs: int = 4  # Epochs per cycle (ignored if num_cycles > 0)
+    restart_period: int = 0  # Steps per cycle (overrides both if > 0)
     lr_decay_per_cycle: float = 0.5
 
     # Stepped Cosine Restart (takes priority over lr_scheduler when enabled)
@@ -140,6 +142,7 @@ class TrainingConfig:
     # Batch size
     batch_size: int = 16
     gradient_accumulation_steps: int = 1
+    drop_last_accumulation: bool = True
 
     # Training mode
     training_mode: Literal["steps", "epochs"] = "epochs"

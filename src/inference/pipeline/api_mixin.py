@@ -72,14 +72,21 @@ class PipelineAPIMixin:
         num_steps: int = 50,
         use_cfg: bool = True,
         sampler_method: str = "heun",
+        full_heun_cfg: bool = False,
     ) -> Dict[str, Any]:
         """Get NFE statistics."""
-        nfe = self._generator.count_nfe(num_steps, use_cfg, sampler_method)
+        nfe = self._generator.count_nfe(
+            num_steps=num_steps,
+            use_cfg=use_cfg,
+            sampler_method=sampler_method,
+            full_heun_cfg=full_heun_cfg,
+        )
         return {
             "nfe": nfe,
             "nfe_per_step": nfe / num_steps,
             "sampler_method": sampler_method,
             "use_cfg": use_cfg,
+            "full_heun_cfg": full_heun_cfg,
             "num_steps": num_steps,
         }
 

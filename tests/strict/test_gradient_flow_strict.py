@@ -53,7 +53,10 @@ def testing_config() -> PixelHDMConfig:
         - patch_layers=2
         - pixel_layers=1
     """
-    return PixelHDMConfig.for_testing()
+    config = PixelHDMConfig.for_testing()
+    # Disable text processor to avoid unused-parameter gradients when text is absent.
+    object.__setattr__(config, "text_processor_layers", 0)
+    return config
 
 
 @pytest.fixture

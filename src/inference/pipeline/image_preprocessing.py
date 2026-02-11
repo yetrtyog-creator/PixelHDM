@@ -32,8 +32,15 @@ def preprocess_image(
     if image.mode != "RGB":
         image = image.convert("RGB")
 
-    # Align to patch_size
+    # Validate minimum size (#9 fix: prevent resize to 0)
     w, h = image.size
+    if w < patch_size or h < patch_size:
+        raise ValueError(
+            f"Image size ({w}x{h}) is smaller than patch_size ({patch_size}). "
+            f"Minimum supported size is {patch_size}x{patch_size}."
+        )
+
+    # Align to patch_size
     new_w = (w // patch_size) * patch_size
     new_h = (h // patch_size) * patch_size
 

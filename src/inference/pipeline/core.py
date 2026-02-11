@@ -110,6 +110,11 @@ class PixelHDMPipeline(PipelineOptimizationMixin, PipelineAPIMixin):
         output_type: str = "pil",
         return_intermediates: bool = False,
         callback: Optional[Callable[[int, int, torch.Tensor], None]] = None,
+        guidance_rescale: float = 0.0,
+        use_dynamic_cfg: bool = False,
+        cfg_schedule: str = "constant",
+        cfg_min_scale: float = 1.0,
+        cfg_max_scale: Optional[float] = None,
         **kwargs,
     ) -> PipelineOutput:
         """Generate images from text prompts."""
@@ -136,13 +141,19 @@ class PixelHDMPipeline(PipelineOptimizationMixin, PipelineAPIMixin):
             sampler_method=sampler_method,
             return_intermediates=return_intermediates,
             callback=callback,
+            guidance_rescale=guidance_rescale,
+            use_dynamic_cfg=use_dynamic_cfg,
+            cfg_schedule=cfg_schedule,
+            cfg_min_scale=cfg_min_scale,
+            cfg_max_scale=cfg_max_scale,
         )
 
         logger.debug("Postprocessing images...")
         return self._create_output(
             result, inputs, prompt, negative_prompt, height, width,
             num_steps, guidance_scale, seed, sampler_method, output_type,
-            return_intermediates
+            return_intermediates, guidance_rescale, use_dynamic_cfg,
+            cfg_schedule, cfg_min_scale, cfg_max_scale
         )
 
     def _create_generator(self, seed: Optional[int]) -> Optional[torch.Generator]:
@@ -160,6 +171,11 @@ class PixelHDMPipeline(PipelineOptimizationMixin, PipelineAPIMixin):
         prompt, negative_prompt, height, width,
         num_steps, guidance_scale, seed, sampler_method, output_type,
         return_intermediates,
+        guidance_rescale: float = 0.0,
+        use_dynamic_cfg: bool = False,
+        cfg_schedule: str = "constant",
+        cfg_min_scale: float = 1.0,
+        cfg_max_scale: Optional[float] = None,
     ) -> PipelineOutput:
         """Create pipeline output from generation result."""
         if return_intermediates:
@@ -183,6 +199,11 @@ class PixelHDMPipeline(PipelineOptimizationMixin, PipelineAPIMixin):
                 "width": width,
                 "num_steps": num_steps,
                 "guidance_scale": guidance_scale,
+                "guidance_rescale": guidance_rescale,
+                "use_dynamic_cfg": use_dynamic_cfg,
+                "cfg_schedule": cfg_schedule,
+                "cfg_min_scale": cfg_min_scale,
+                "cfg_max_scale": cfg_max_scale,
                 "seed": seed,
                 "sampler_method": sampler_method,
             },

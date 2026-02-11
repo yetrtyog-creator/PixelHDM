@@ -23,7 +23,7 @@ import torch
 import torch.nn as nn
 
 from .noise import interpolate
-from .time_sampling import sample_logit_normal
+from .time_sampling import sample_logit_normal, build_timestep_shift_config
 
 if TYPE_CHECKING:
     from ...config.model_config import PixelHDMConfig
@@ -50,13 +50,20 @@ class PixelHDMFlowMatching(nn.Module):
         config: Optional["PixelHDMConfig"] = None,
         p_mean: float = 0.0,
         p_std: float = 1.0,
-        t_eps: float = 0.05,
+        t_eps: float = 0.0001,
     ) -> None:
         super().__init__()
         if config is not None:
             p_mean = config.time_p_mean
             p_std = config.time_p_std
             t_eps = config.time_eps
+            self.use_dynamic_timestep_shift = getattr(config, "use_dynamic_timestep_shift", False)
+            self.shift_config = build_timestep_shift_config(config)
+            self.patch_size = getattr(config, "patch_size", None)
+        else:
+            self.use_dynamic_timestep_shift = False
+            self.shift_config = None
+            self.patch_size = None
         self.p_mean = p_mean
         self.p_std = p_std
         self.t_eps = t_eps
@@ -64,12 +71,28 @@ class PixelHDMFlowMatching(nn.Module):
     def sample_timesteps(
         self, batch_size: int, device: torch.device,
         dtype: torch.dtype = torch.float32,
+        num_tokens: Optional[int] = None,
     ) -> torch.Tensor:
         """Sample timesteps using Logit-Normal distribution."""
         return sample_logit_normal(
             batch_size=batch_size, device=device, dtype=dtype,
             p_mean=self.p_mean, p_std=self.p_std, t_eps=self.t_eps,
+            num_tokens=num_tokens if self.use_dynamic_timestep_shift else None,
+            shift_config=self.shift_config if self.use_dynamic_timestep_shift else None,
         )
+
+    def _get_num_tokens_from_x(self, x: torch.Tensor) -> Optional[int]:
+        if self.patch_size is None or x.dim() != 4:
+            return None
+        if x.shape[-1] in (1, 3, 4) and x.shape[1] not in (1, 3, 4):
+            height, width = x.shape[1], x.shape[2]  # NHWC
+        elif x.shape[1] in (1, 3, 4) and x.shape[-1] not in (1, 3, 4):
+            height, width = x.shape[2], x.shape[3]  # NCHW
+        else:
+            return None
+        if height % self.patch_size != 0 or width % self.patch_size != 0:
+            return None
+        return (height // self.patch_size) * (width // self.patch_size)
 
     def interpolate(
         self, x: torch.Tensor, noise: torch.Tensor, t: torch.Tensor,
@@ -87,7 +110,8 @@ class PixelHDMFlowMatching(nn.Module):
         if noise is None:
             noise = torch.randn_like(x)
         if t is None:
-            t = self.sample_timesteps(B, device, dtype)
+            num_tokens = self._get_num_tokens_from_x(x) if self.use_dynamic_timestep_shift else None
+            t = self.sample_timesteps(B, device, dtype, num_tokens=num_tokens)
         z_t = self.interpolate(x, noise, t)
         return t, z_t, x, noise
 
@@ -134,7 +158,7 @@ class PixelHDMFlowMatching(nn.Module):
         Returns: (loss, metrics)
         """
         t, z_t, x_clean, noise = self.prepare_training(x, noise, t)
-        v_pred = model(z_t, t, text_embeddings=text_embeddings, **model_kwargs)
+        v_pred = model(z_t, t, text_embed=text_embeddings, **model_kwargs)
         loss = self.compute_loss(v_pred, x_clean, noise)
         with torch.no_grad():
             metrics = {

@@ -116,26 +116,41 @@ class SteppedCosineRestartScheduler(LRScheduler):
         super().__init__(optimizer, last_epoch)
 
     def get_lr(self) -> list[float]:
-        """Calculate current learning rate."""
-        # During warmup: linear increase from 0 to base_lr
+        """Calculate current learning rate for each param group.
+
+        Respects per-group lr_scale by computing the decay factor and
+        applying it to each group's base_lr individually.
+        """
+        # During warmup: linear increase from 0 to each group's base_lr
         if self.total_steps < self.warmup_steps:
             warmup_factor = (self.total_steps + 1) / self.warmup_steps
-            return [self.base_lr * warmup_factor for _ in self.base_lrs]
+            return [group_base_lr * warmup_factor for group_base_lr in self.base_lrs]
 
         # After warmup: stepped cosine decay
         decay_factor = self.decay_rate ** self.cycle
-        cycle_peak = max(self.global_min_lr, self.base_lr * decay_factor)
-        cycle_min = max(self.global_min_lr, self.cycle_min_lr * decay_factor)
-
-        # Ensure cycle_min <= cycle_peak after decay
-        if cycle_min > cycle_peak:
-            cycle_min = cycle_peak
 
         progress = max(0, self.T_cur) / self.T_i
         cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
-        lr = cycle_min + (cycle_peak - cycle_min) * cosine_factor
 
-        return [lr for _ in self.base_lrs]
+        # Calculate lr for each param group based on their own base_lr
+        lrs = []
+        for group_base_lr in self.base_lrs:
+            # Scale the cycle peak/min relative to this group's base_lr
+            ratio = group_base_lr / self.base_lr if self.base_lr > 0 else 1.0
+            group_cycle_peak = max(self.global_min_lr * ratio, group_base_lr * decay_factor)
+            group_cycle_min = max(
+                self.global_min_lr * ratio,
+                self.cycle_min_lr * ratio * decay_factor
+            )
+
+            # Ensure cycle_min <= cycle_peak after decay
+            if group_cycle_min > group_cycle_peak:
+                group_cycle_min = group_cycle_peak
+
+            lr = group_cycle_min + (group_cycle_peak - group_cycle_min) * cosine_factor
+            lrs.append(lr)
+
+        return lrs
 
     def step(self, epoch: Optional[int] = None) -> None:
         """Update learning rate (override to track cycles)."""
@@ -204,6 +219,7 @@ class SteppedCosineRestartScheduler(LRScheduler):
         """Save scheduler state."""
         state = super().state_dict()
         state.update({
+            'T_0': self.T_0,  # Save T_0 for consistency check
             'T_cur': self.T_cur,
             'T_i': self.T_i,
             'cycle': self.cycle,
@@ -212,11 +228,28 @@ class SteppedCosineRestartScheduler(LRScheduler):
         return state
 
     def load_state_dict(self, state_dict: dict) -> None:
-        """Load scheduler state."""
+        """Load scheduler state.
+
+        Note: If saved T_0 differs from current T_0 (e.g., due to config change),
+        a warning is logged. The current T_0 is used for future cycles, but
+        T_i from checkpoint is preserved for the current cycle.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        saved_T_0 = state_dict.pop('T_0', None)
         self.T_cur = state_dict.pop('T_cur', 0)
         self.T_i = state_dict.pop('T_i', self.T_0)
         self.cycle = state_dict.pop('cycle', 0)
         self.total_steps = state_dict.pop('total_steps', 0)
+
+        # Warn if T_0 changed (indicates config or dataloader size change)
+        if saved_T_0 is not None and saved_T_0 != self.T_0:
+            logger.warning(
+                f"Scheduler T_0 mismatch: checkpoint={saved_T_0}, current={self.T_0}. "
+                f"This may cause unexpected LR behavior. Consider reset_scheduler=True."
+            )
+
         super().load_state_dict(state_dict)
 
         # Update optimizer LR after loading state

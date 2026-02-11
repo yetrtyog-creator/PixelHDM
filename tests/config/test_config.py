@@ -156,6 +156,7 @@ class TestConfigSerialization:
             "freq_loss_enabled", "freq_loss_lambda",
             "text_encoder_name", "text_max_length",
             "mrope_text_dim", "mrope_img_h_dim", "mrope_img_w_dim",
+            "text_processor_layers", "image_processor_layers",
         ]
 
         for key in essential_keys:
@@ -259,6 +260,8 @@ class TestConfigFactoryMethods:
         assert config.num_heads == 16
         assert config.num_kv_heads == 4
         assert config.patch_size == 16
+        assert config.text_processor_layers == 2
+        assert config.image_processor_layers == 2
 
     def test_small_factory_values(self):
         """Test that small() returns expected reduced values."""
@@ -270,6 +273,8 @@ class TestConfigFactoryMethods:
         assert config.num_heads == 8
         assert config.num_kv_heads == 2
         assert config.text_hidden_size == 512  # Must match hidden_dim
+        assert config.text_processor_layers == 2
+        assert config.image_processor_layers == 2
 
     def test_large_factory_values(self):
         """Test that large() returns expected increased values."""
@@ -282,6 +287,8 @@ class TestConfigFactoryMethods:
         assert config.num_kv_heads == 4
         assert config.head_dim == 72
         assert config.text_hidden_size == 1152  # Must match hidden_dim
+        assert config.text_processor_layers == 2
+        assert config.image_processor_layers == 2
         # Verify mRoPE dimensions sum to head_dim=72
         mrope_sum = config.mrope_text_dim + config.mrope_img_h_dim + config.mrope_img_w_dim
         assert mrope_sum == config.head_dim == 72

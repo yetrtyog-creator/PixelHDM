@@ -23,11 +23,15 @@ from ..layers.embedding import (
 from ..layers.normalization import RMSNorm
 from ..layers.rope import (
     create_rope_from_config,
+    create_rope_2d,
     create_position_ids_batched,
     create_image_only_position_ids_batched,
 )
 from ..blocks.patch_block import PatchTransformerBlock
 from ..blocks.pixel_block import PixelTransformerBlock
+from ..blocks.image import ImageProcessorStack
+from ..blocks.text import TextProcessorStack
+from ..encoders.text.auxiliary import TextProjector
 
 if TYPE_CHECKING:
     from ...config.model_config import PixelHDMConfig
@@ -94,8 +98,41 @@ class PixelHDM(nn.Module):
         self.time_embed = TimeEmbedding(config=config)
         self.rope_2d = create_rope_from_config(config)
 
+        # Pixel path RoPE (image-only attention)
+        self.pixel_rope_type = getattr(config, "pixel_rope_type", "mrope")
+        self.pixel_rope_2d = None
+        if self.pixel_rope_type == "rope2d":
+            max_size = getattr(config, "pixel_rope_max_size", None)
+            if max_size is None:
+                max_size = max(config.mrope_img_max_height, config.mrope_img_max_width)
+            self.pixel_rope_2d = create_rope_2d(
+                head_dim=config.head_dim,
+                max_size=max_size,
+                theta=config.mrope_theta,
+            )
+
+        # Text Projector: align text embeddings to hidden_dim when needed
+        self.text_hidden_size = config.text_hidden_size
+        self.text_projector = TextProjector(config=config)
+
     def _init_blocks(self, config: "PixelHDMConfig") -> None:
         """Initialize transformer blocks."""
+        # Image Processor (pre-joint, modality-internal)
+        # Called BEFORE text-image concatenation, NO RoPE, optional timestep
+        self.image_processor_layers = getattr(config, "image_processor_layers", 0)
+        if self.image_processor_layers > 0:
+            self.image_processor = ImageProcessorStack(config=config)
+        else:
+            self.image_processor = None
+
+        # Text Processor (pre-joint, modality-internal)
+        # Called BEFORE text-image concatenation, NO RoPE, NO timestep
+        self.text_processor_layers = getattr(config, "text_processor_layers", 0)
+        if self.text_processor_layers > 0:
+            self.text_processor = TextProcessorStack(config=config)
+        else:
+            self.text_processor = None
+
         self.patch_blocks = nn.ModuleList([
             PatchTransformerBlock(config=config)
             for _ in range(self.patch_layers)
@@ -125,6 +162,7 @@ class PixelHDM(nn.Module):
 
         self.apply(_basic_init)
         self._init_output_proj()
+        self._reinit_token_compaction()
         self._reinit_adaln()
 
     def _reinit_adaln(self) -> None:
@@ -136,8 +174,22 @@ class PixelHDM(nn.Module):
 
     def _init_output_proj(self) -> None:
         # Removed: small std init caused output to be ~17x too small
-        # Xavier init from _basic_init is sufficient
-        pass
+        # Xavier init from _basic_init is sufficient unless zero_init_output is enabled
+        if getattr(self.config, "zero_init_output", False):
+            proj = getattr(self.output_proj, "proj", None)
+            if proj is not None and isinstance(proj, nn.Linear):
+                nn.init.zeros_(proj.weight)
+                if proj.bias is not None:
+                    nn.init.zeros_(proj.bias)
+
+    def _reinit_token_compaction(self) -> None:
+        """Re-initialize TokenCompaction expand weights to honor expand_gain."""
+        gain = getattr(self.config, "token_compaction_expand_gain", None)
+        if gain is None:
+            return
+        for module in self.modules():
+            if module.__class__.__name__ in {"TokenCompaction", "TokenCompactionNoResidual"}:
+                nn.init.xavier_uniform_(module.expand.weight, gain=gain)
 
     def _create_joint_sequence(
         self,
@@ -210,7 +262,6 @@ class PixelHDM(nn.Module):
         t: torch.Tensor,
         text_embed: Optional[torch.Tensor] = None,
         text_mask: Optional[torch.Tensor] = None,
-        pooled_text_embed: Optional[torch.Tensor] = None,
         return_features: bool = False,
         return_aux: bool = False,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
@@ -221,7 +272,6 @@ class PixelHDM(nn.Module):
             t: Timestep (B,)
             text_embed: Text embedding sequence (B, T, D)
             text_mask: Text attention mask (B, T)
-            pooled_text_embed: Pooled text embedding (B, D) for AdaLN conditioning
             return_features: Whether to return REPA features
             return_aux: Whether to return auxiliary outputs (gamma_l2)
 
@@ -240,6 +290,36 @@ class PixelHDM(nn.Module):
         x = self.patch_embed(x_t)
         t_embed = self.time_embed(t)
 
+        # Image Processor: modality-internal pre-processing BEFORE joint attention
+        # Key design: NO RoPE (position encoding only in joint mRoPE), timestep via TokenAdaLN
+        if self.image_processor is not None:
+            image_t_embed = t_embed
+            if not getattr(self.config, "image_processor_use_timestep", True):
+                image_t_embed = torch.zeros_like(t_embed)
+            x = self.image_processor(x, t_embed=image_t_embed, image_mask=None)
+
+        # Text Projector: align text embed dim to hidden_dim (if needed)
+        if text_embed is not None:
+            input_dim = text_embed.shape[-1]
+            if input_dim != self.hidden_dim:
+                if self.text_projector is None:
+                    raise ValueError(
+                        f"text_embed dim {input_dim} does not match hidden_dim "
+                        f"{self.hidden_dim}, and no TextProjector is available."
+                    )
+                expected_in = getattr(self.text_projector, "input_dim", input_dim)
+                if input_dim != expected_in:
+                    raise ValueError(
+                        f"text_embed dim {input_dim} does not match expected text_hidden_size "
+                        f"{expected_in}."
+                    )
+                text_embed = self.text_projector(text_embed)
+
+            if self.text_processor is not None:
+                if text_mask is not None:
+                    text_mask = text_mask.to(dtype=torch.bool)
+                text_embed = self.text_processor(text_embed, text_mask=text_mask)
+
         x, joint_mask, text_len, text_only_mask = self._create_joint_sequence(x, text_embed, text_mask)
 
         # Create Lumina2-style position IDs for joint text+image sequence
@@ -256,18 +336,18 @@ class PixelHDM(nn.Module):
         rope_fn = self._create_rope_fn(position_ids)
 
         repa_features = None
+
         for i, block in enumerate(self.patch_blocks):
             x = block(x, t_embed=t_embed, rope_fn=rope_fn, position_ids=position_ids, attention_mask=joint_mask)
+
             if return_features and i == self.repa_align_layer:
                 repa_features = self._extract_image_tokens(x, text_len).clone()
 
         semantic_tokens = self._extract_image_tokens(x, text_len)
 
-        # s_cond: 結合語義 tokens、時間嵌入和池化文本嵌入 (SD3/Lumina style)
-        # 這使得文本和語義信息直接參與 PixelTransformer 的 AdaLN 調制
+        # s_cond: 結合語義 tokens 和時間嵌入
+        # 這使得語義信息直接參與 PixelTransformer 的 AdaLN 調制
         s_cond = semantic_tokens + t_embed.unsqueeze(1)
-        if pooled_text_embed is not None:
-            s_cond = s_cond + pooled_text_embed.unsqueeze(1)
 
         # 1×1 Patchify: 直接從輸入圖像獲取像素級特徵 (保留高頻細節)
         # 這是 PixelHDM 論文的設計 - 雙輸入路徑
@@ -283,7 +363,14 @@ class PixelHDM(nn.Module):
             patch_size=self.patch_size,
             device=x.device,
         )
-        pixel_rope_fn = self._create_rope_fn(pixel_position_ids)
+        if self.pixel_rope_type == "rope2d" and self.pixel_rope_2d is not None:
+            def pixel_rope_fn(q, k, pos_ids=None):
+                ids = pos_ids if pos_ids is not None else pixel_position_ids
+                h_positions = ids[..., 1]
+                w_positions = ids[..., 2]
+                return self.pixel_rope_2d(q, k, h_positions, w_positions)
+        else:
+            pixel_rope_fn = self._create_rope_fn(pixel_position_ids)
 
         # Accumulate gamma_l2 from pixel blocks when return_aux is True
         gamma_l2_total = None
@@ -316,21 +403,19 @@ class PixelHDM(nn.Module):
         t: torch.Tensor,
         text_embed: Optional[torch.Tensor] = None,
         text_mask: Optional[torch.Tensor] = None,
-        pooled_text_embed: Optional[torch.Tensor] = None,
         cfg_scale: float = 7.5,
         null_text_embed: Optional[torch.Tensor] = None,
         null_text_mask: Optional[torch.Tensor] = None,
-        null_pooled_text_embed: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with Classifier-Free Guidance."""
-        x_cond = self.forward(x_t, t, text_embed, text_mask, pooled_text_embed)
+        x_cond = self.forward(x_t, t, text_embed, text_mask)
 
         if cfg_scale == 1.0 or null_text_embed is None:
             return x_cond
 
         # Use null_text_mask for unconditional branch (fallback to text_mask if None)
         uncond_mask = null_text_mask if null_text_mask is not None else text_mask
-        x_uncond = self.forward(x_t, t, null_text_embed, uncond_mask, null_pooled_text_embed)
+        x_uncond = self.forward(x_t, t, null_text_embed, uncond_mask)
         return x_uncond + cfg_scale * (x_cond - x_uncond)
 
     def get_repa_features(
@@ -339,11 +424,10 @@ class PixelHDM(nn.Module):
         t: torch.Tensor,
         text_embed: Optional[torch.Tensor] = None,
         text_mask: Optional[torch.Tensor] = None,
-        pooled_text_embed: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Get REPA alignment layer features."""
         _, features = self.forward(
-            x_t, t, text_embed, text_mask, pooled_text_embed, return_features=True
+            x_t, t, text_embed, text_mask, return_features=True
         )
         return features
 
@@ -351,15 +435,31 @@ class PixelHDM(nn.Module):
         """Count model parameters."""
         total = sum(p.numel() for p in self.parameters())
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        image_processor_params = (
+            sum(p.numel() for p in self.image_processor.parameters())
+            if self.image_processor is not None else 0
+        )
+        text_processor_params = (
+            sum(p.numel() for p in self.text_processor.parameters())
+            if self.text_processor is not None else 0
+        )
+        text_projector_params = (
+            sum(p.numel() for p in self.text_projector.parameters())
+            if self.text_projector is not None else 0
+        )
         return {
             "total": total,
             "trainable": trainable,
             "frozen": total - trainable,
+            "image_processor": image_processor_params,
+            "text_processor": text_processor_params,
+            "text_projector": text_projector_params,
             "patch_level": sum(p.numel() for p in self.patch_blocks.parameters()),
             "pixel_level": sum(p.numel() for p in self.pixel_blocks.parameters()),
             "embeddings": sum(p.numel() for p in self.patch_embed.parameters())
                         + sum(p.numel() for p in self.pixel_embed.parameters())
                         + sum(p.numel() for p in self.time_embed.parameters()),
+            "projectors": text_projector_params,
         }
 
     def extra_repr(self) -> str:
@@ -368,6 +468,8 @@ class PixelHDM(nn.Module):
             f"hidden_dim={self.hidden_dim}, "
             f"pixel_dim={self.pixel_dim}, "
             f"patch_size={self.patch_size}, "
+            f"image_processor_layers={self.image_processor_layers}, "
+            f"text_processor_layers={self.text_processor_layers}, "
             f"patch_layers={self.patch_layers}, "
             f"pixel_layers={self.pixel_layers}, "
             f"params={params['total']/1e6:.1f}M"

@@ -1,0 +1,187 @@
+[
+  {
+    "gain": 0.05,
+    "init_probe": {
+      "blocks": [
+        {
+          "x_in_std": 0.649060845375061,
+          "h_std": 0.4719706177711487,
+          "compaction_ratio": 0.7271592699862012,
+          "update_std": 0.3354882001876831,
+          "update_ratio": 0.5168825040200901,
+          "alpha1_mean": 0.9925353527069092,
+          "alpha1_std": 0.15711715817451477,
+          "gate_mean": 0.5204200744628906,
+          "gate_std": 0.25661906599998474,
+          "gate_sat_low": 0.0,
+          "gate_sat_high": 0.0
+        }
+      ],
+      "summary": {
+        "compaction_ratio_avg": 0.7271592699862012,
+        "update_ratio_avg": 0.5168825040200901,
+        "alpha1_mean_avg": 0.9925353527069092,
+        "gate_mean_avg": 0.5204200744628906,
+        "gate_std_avg": 0.25661906599998474,
+        "gate_sat_low_avg": 0.0,
+        "gate_sat_high_avg": 0.0
+      }
+    },
+    "train": {
+      "loss_start": 3.814070701599121,
+      "loss_end": 2.859846353530884,
+      "loss_slope": -0.019473966287106882,
+      "loss_auc": 3.6932490825653077,
+      "grad_norm_mean": 4.178806798593729,
+      "grad_norm_max": 5.025028004033043
+    }
+  },
+  {
+    "gain": 0.1,
+    "init_probe": {
+      "blocks": [
+        {
+          "x_in_std": 0.649060845375061,
+          "h_std": 0.4719706177711487,
+          "compaction_ratio": 0.7271592699862012,
+          "update_std": 0.3354882001876831,
+          "update_ratio": 0.5168825040200901,
+          "alpha1_mean": 0.9925353527069092,
+          "alpha1_std": 0.15711715817451477,
+          "gate_mean": 0.5204200744628906,
+          "gate_std": 0.25661906599998474,
+          "gate_sat_low": 0.0,
+          "gate_sat_high": 0.0
+        }
+      ],
+      "summary": {
+        "compaction_ratio_avg": 0.7271592699862012,
+        "update_ratio_avg": 0.5168825040200901,
+        "alpha1_mean_avg": 0.9925353527069092,
+        "gate_mean_avg": 0.5204200744628906,
+        "gate_std_avg": 0.25661906599998474,
+        "gate_sat_low_avg": 0.0,
+        "gate_sat_high_avg": 0.0
+      }
+    },
+    "train": {
+      "loss_start": 3.814070701599121,
+      "loss_end": 2.859846353530884,
+      "loss_slope": -0.019473966287106882,
+      "loss_auc": 3.6932490825653077,
+      "grad_norm_mean": 4.178806798593729,
+      "grad_norm_max": 5.025028004033043
+    }
+  },
+  {
+    "gain": 0.2,
+    "init_probe": {
+      "blocks": [
+        {
+          "x_in_std": 0.649060845375061,
+          "h_std": 0.4719706177711487,
+          "compaction_ratio": 0.7271592699862012,
+          "update_std": 0.3354882001876831,
+          "update_ratio": 0.5168825040200901,
+          "alpha1_mean": 0.9925353527069092,
+          "alpha1_std": 0.15711715817451477,
+          "gate_mean": 0.5204200744628906,
+          "gate_std": 0.25661906599998474,
+          "gate_sat_low": 0.0,
+          "gate_sat_high": 0.0
+        }
+      ],
+      "summary": {
+        "compaction_ratio_avg": 0.7271592699862012,
+        "update_ratio_avg": 0.5168825040200901,
+        "alpha1_mean_avg": 0.9925353527069092,
+        "gate_mean_avg": 0.5204200744628906,
+        "gate_std_avg": 0.25661906599998474,
+        "gate_sat_low_avg": 0.0,
+        "gate_sat_high_avg": 0.0
+      }
+    },
+    "train": {
+      "loss_start": 3.814070701599121,
+      "loss_end": 2.859846353530884,
+      "loss_slope": -0.019473966287106882,
+      "loss_auc": 3.6932490825653077,
+      "grad_norm_mean": 4.178806798593729,
+      "grad_norm_max": 5.025028004033043
+    }
+  },
+  {
+    "gain": 0.3,
+    "init_probe": {
+      "blocks": [
+        {
+          "x_in_std": 0.649060845375061,
+          "h_std": 0.4719706177711487,
+          "compaction_ratio": 0.7271592699862012,
+          "update_std": 0.3354882001876831,
+          "update_ratio": 0.5168825040200901,
+          "alpha1_mean": 0.9925353527069092,
+          "alpha1_std": 0.15711715817451477,
+          "gate_mean": 0.5204200744628906,
+          "gate_std": 0.25661906599998474,
+          "gate_sat_low": 0.0,
+          "gate_sat_high": 0.0
+        }
+      ],
+      "summary": {
+        "compaction_ratio_avg": 0.7271592699862012,
+        "update_ratio_avg": 0.5168825040200901,
+        "alpha1_mean_avg": 0.9925353527069092,
+        "gate_mean_avg": 0.5204200744628906,
+        "gate_std_avg": 0.25661906599998474,
+        "gate_sat_low_avg": 0.0,
+        "gate_sat_high_avg": 0.0
+      }
+    },
+    "train": {
+      "loss_start": 3.814070701599121,
+      "loss_end": 2.859846353530884,
+      "loss_slope": -0.019473966287106882,
+      "loss_auc": 3.6932490825653077,
+      "grad_norm_mean": 4.178806798593729,
+      "grad_norm_max": 5.025028004033043
+    }
+  },
+  {
+    "gain": 0.5,
+    "init_probe": {
+      "blocks": [
+        {
+          "x_in_std": 0.649060845375061,
+          "h_std": 0.4719706177711487,
+          "compaction_ratio": 0.7271592699862012,
+          "update_std": 0.3354882001876831,
+          "update_ratio": 0.5168825040200901,
+          "alpha1_mean": 0.9925353527069092,
+          "alpha1_std": 0.15711715817451477,
+          "gate_mean": 0.5204200744628906,
+          "gate_std": 0.25661906599998474,
+          "gate_sat_low": 0.0,
+          "gate_sat_high": 0.0
+        }
+      ],
+      "summary": {
+        "compaction_ratio_avg": 0.7271592699862012,
+        "update_ratio_avg": 0.5168825040200901,
+        "alpha1_mean_avg": 0.9925353527069092,
+        "gate_mean_avg": 0.5204200744628906,
+        "gate_std_avg": 0.25661906599998474,
+        "gate_sat_low_avg": 0.0,
+        "gate_sat_high_avg": 0.0
+      }
+    },
+    "train": {
+      "loss_start": 3.814070701599121,
+      "loss_end": 2.859846353530884,
+      "loss_slope": -0.019473966287106882,
+      "loss_auc": 3.6932490825653077,
+      "grad_norm_mean": 4.178806798593729,
+      "grad_norm_max": 5.025028004033043
+    }
+  }
+]

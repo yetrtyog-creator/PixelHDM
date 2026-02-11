@@ -231,7 +231,7 @@ class TestTextProjector:
         assert isinstance(proj.proj, nn.Identity)
 
     def test_projector_init_different_dim(self):
-        """Test projector with different dims uses linear."""
+        """Test projector with different dims uses Linear projection."""
         proj = TextProjector(input_dim=2048, output_dim=1024)
 
         assert proj.input_dim == 2048
@@ -255,13 +255,14 @@ class TestTextProjector:
         assert output.shape == (2, 77, 1024)
         assert torch.allclose(output, x)
 
-    def test_projector_forward_linear(self):
-        """Test forward with linear projection."""
+    def test_projector_forward_passthrough(self):
+        """Test forward applies projection when dims differ."""
         proj = TextProjector(input_dim=2048, output_dim=1024)
 
         x = torch.randn(2, 77, 2048)
         output = proj(x)
 
+        # Projection reduces to output_dim
         assert output.shape == (2, 77, 1024)
         assert not torch.isnan(output).any()
 
