@@ -28,6 +28,7 @@ from src.models.pixelhdm import create_pixelhdm_for_t2i
 from src.training.trainer import Trainer
 from src.training.train_utils import find_latest_checkpoint, setup_seed, verify_environment, setup_file_logging
 from src.training.train_dataloader import create_dataloader_from_config
+from src.training.prefetch import ThreadPrefetchDataLoader, resolve_thread_prefetch_config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 logger = logging.getLogger(__name__)
@@ -43,6 +44,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="cuda", help="Training device")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--skip-verify", action="store_true", help="Skip environment verification")
+    parser.set_defaults(thread_prefetch_enabled=True)
+    parser.add_argument(
+        "--enable-thread-prefetch",
+        dest="thread_prefetch_enabled",
+        action="store_true",
+        help="Enable single-thread prefetch wrapper (default behavior).",
+    )
+    parser.add_argument(
+        "--disable-thread-prefetch",
+        dest="thread_prefetch_enabled",
+        action="store_false",
+        help="Disable single-thread prefetch wrapper.",
+    )
+    parser.add_argument(
+        "--prefetch-buffer-multiplier",
+        type=int,
+        default=2,
+        help="Buffer items = grad_accumulation_steps * multiplier when buffer-items is not set.",
+    )
+    parser.add_argument(
+        "--prefetch-buffer-items",
+        type=int,
+        default=None,
+        help="Absolute prefetch buffer item count (overrides multiplier).",
+    )
     return parser.parse_args()
 
 
@@ -214,6 +240,26 @@ def main() -> None:
     try:
         train_dataloader = create_dataloader_from_config(data_config, model_config, training_config)
         logger.info(f"Training set: {len(train_dataloader.dataset)} images")
+        prefetch = resolve_thread_prefetch_config(
+            gradient_accumulation_steps=int(training_config.gradient_accumulation_steps),
+            num_workers=int(data_config.num_workers),
+            cli_enabled=bool(args.thread_prefetch_enabled),
+            buffer_multiplier=int(args.prefetch_buffer_multiplier),
+            buffer_items=args.prefetch_buffer_items,
+        )
+        if prefetch.enabled:
+            train_dataloader = ThreadPrefetchDataLoader(train_dataloader, buffer_items=prefetch.resolved_items)
+            logger.info(
+                "Thread prefetch enabled: buffer_items=%d (grad_accum=%d, multiplier=%d, num_workers=%d)",
+                int(prefetch.resolved_items),
+                int(training_config.gradient_accumulation_steps),
+                int(prefetch.multiplier),
+                int(data_config.num_workers),
+            )
+        elif int(data_config.num_workers) > 0 and bool(args.thread_prefetch_enabled):
+            logger.info("Thread prefetch skipped because num_workers>0 (DataLoader workers already enabled).")
+        else:
+            logger.info("Thread prefetch disabled by CLI flag.")
     except Exception as e:
         logger.error(f"Failed to create DataLoader: {e}")
         sys.exit(1)
@@ -257,6 +303,8 @@ def main() -> None:
         trainer.save_checkpoint(output_dir)
         raise
     finally:
+        if 'train_dataloader' in locals() and hasattr(train_dataloader, "close"):
+            train_dataloader.close()
         # Cleanup GPU resources
         if device.type == "cuda":
             import gc

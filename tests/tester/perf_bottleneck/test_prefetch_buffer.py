@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from tests.tester.perf_bottleneck.prefetch_buffer import ThreadPrefetchDataLoader
 
 
@@ -41,3 +43,24 @@ def test_prefetch_loader_supports_multiple_iters() -> None:
     assert first == [0, 1, 2, 3, 4]
     assert second == [0, 1, 2, 3, 4]
 
+
+class _ErrorLoader:
+    dataset = [0, 1]
+
+    def __len__(self):
+        return 2
+
+    def __iter__(self):
+        yield {"value": 0}
+        raise ValueError("boom")
+
+
+def test_prefetch_loader_propagates_producer_error() -> None:
+    wrapped = ThreadPrefetchDataLoader(_ErrorLoader(), buffer_items=2)
+    try:
+        it = iter(wrapped)
+        assert next(it)["value"] == 0
+        with pytest.raises(RuntimeError):
+            next(it)
+    finally:
+        wrapped.close()

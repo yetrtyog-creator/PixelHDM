@@ -36,6 +36,11 @@ from tests.tester.perf_bottleneck.runtime_instrumentation import (
     StepMetricsCollector,
 )
 from tests.tester.perf_bottleneck.prefetch_buffer import ThreadPrefetchDataLoader
+from tests.tester.perf_bottleneck.prefetch_policy import (
+    PrefetchSettings,
+    apply_prefetch_metadata,
+    resolve_prefetch_settings,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -84,7 +89,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disable-random-augment", action="store_true")
     parser.add_argument("--disable-text-encoder", action="store_true")
     parser.add_argument("--disable-repa", action="store_true")
-    parser.add_argument("--enable-thread-prefetch", action="store_true")
+    parser.set_defaults(thread_prefetch_enabled=True)
+    parser.add_argument(
+        "--enable-thread-prefetch",
+        dest="thread_prefetch_enabled",
+        action="store_true",
+        help="Explicitly enable thread prefetch (default behavior).",
+    )
+    parser.add_argument(
+        "--disable-thread-prefetch",
+        dest="thread_prefetch_enabled",
+        action="store_false",
+        help="Disable default thread prefetch wrapper.",
+    )
     parser.add_argument("--prefetch-buffer-multiplier", type=int, default=2)
     parser.add_argument("--prefetch-buffer-items", type=int, default=None)
     parser.add_argument("--save-final-checkpoint", action="store_true")
@@ -186,6 +203,7 @@ def _write_run_metadata(
     config_path: str,
     checkpoint_dir: Path,
     step_metrics_path: Path,
+    prefetch: PrefetchSettings,
 ) -> None:
     metadata = {
         "run_id": run_id,
@@ -206,13 +224,12 @@ def _write_run_metadata(
         "disable_random_augment": bool(args.disable_random_augment),
         "disable_text_encoder": bool(args.disable_text_encoder),
         "disable_repa": bool(args.disable_repa),
-        "enable_thread_prefetch": bool(args.enable_thread_prefetch),
-        "prefetch_buffer_multiplier": int(args.prefetch_buffer_multiplier),
-        "prefetch_buffer_items": args.prefetch_buffer_items,
         "save_final_checkpoint": bool(args.save_final_checkpoint),
         "checkpoint_dir": str(checkpoint_dir),
         "step_metrics_path": str(step_metrics_path),
     }
+    apply_prefetch_metadata(metadata, prefetch)
+    metadata["enable_thread_prefetch"] = bool(prefetch.enabled)
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
 
@@ -232,15 +249,6 @@ def main() -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     setup_file_logging(log_dir, experiment_name=f"profile_{args.run_id}")
-    _write_run_metadata(
-        run_dir / "run_metadata.json",
-        run_id=args.run_id,
-        args=args,
-        config_path=args.config,
-        checkpoint_dir=checkpoint_dir,
-        step_metrics_path=step_metrics_path,
-    )
-
     logger.info("Loading config: %s", args.config)
     config = Config.from_yaml(args.config)
     model_config = config.model
@@ -300,22 +308,32 @@ def main() -> None:
     logger.info("Creating dataloader...")
     train_dataloader = create_dataloader_from_config(data_config, model_config, training_config)
     logger.info("Training samples: %s", f"{len(train_dataloader.dataset):,}")
-    if args.enable_thread_prefetch:
-        base_items = max(1, int(training_config.gradient_accumulation_steps)) * max(
-            1, int(args.prefetch_buffer_multiplier)
-        )
-        buffer_items = (
-            max(1, int(args.prefetch_buffer_items))
-            if args.prefetch_buffer_items is not None
-            else base_items
-        )
-        train_dataloader = ThreadPrefetchDataLoader(train_dataloader, buffer_items=buffer_items)
+    prefetch = resolve_prefetch_settings(
+        gradient_accumulation_steps=int(training_config.gradient_accumulation_steps),
+        thread_prefetch_enabled=bool(args.thread_prefetch_enabled),
+        prefetch_buffer_multiplier=int(args.prefetch_buffer_multiplier),
+        prefetch_buffer_items=args.prefetch_buffer_items,
+    )
+    if prefetch.enabled:
+        train_dataloader = ThreadPrefetchDataLoader(train_dataloader, buffer_items=prefetch.resolved_items)
         logger.info(
             "Thread prefetch enabled: buffer_items=%d (grad_accum=%d, multiplier=%d)",
-            buffer_items,
+            prefetch.resolved_items,
             int(training_config.gradient_accumulation_steps),
-            int(args.prefetch_buffer_multiplier),
+            int(prefetch.multiplier),
         )
+    else:
+        logger.info("Thread prefetch disabled by CLI flag.")
+
+    _write_run_metadata(
+        run_dir / "run_metadata.json",
+        run_id=args.run_id,
+        args=args,
+        config_path=args.config,
+        checkpoint_dir=checkpoint_dir,
+        step_metrics_path=step_metrics_path,
+        prefetch=prefetch,
+    )
 
     text_encoder = _load_text_encoder(model_config, device)
     trainer = Trainer(
