@@ -2,8 +2,8 @@
 
 > **PixelHDM**: Pixel Home-scale Diffusion Model
 
-**Version**: 1.3.0
-**Date**: 2026-01-20
+**Version**: 1.5.2
+**Date**: 2026-02-11
 
 ---
 
@@ -13,7 +13,7 @@
 2. [Model Architecture](#2-model-architecture) (2.1-2.5)
 3. [Attention Mechanisms](#3-attention-mechanisms) (3.1-3.6)
 4. [Loss Functions](#4-loss-functions) (4.1-4.4)
-5. [Training System](#5-training-system) (5.1-5.10)
+5. [Training System](#5-training-system) (5.1-5.12)
 6. [Inference System](#6-inference-system) (6.1-6.5)
 7. [Embedding Layers](#7-embedding-layers) (7.1-7.6)
 8. [Initialization Strategies](#8-initialization-strategies) (8.1-8.6)
@@ -37,8 +37,16 @@
 |-----------|---------|-----------|
 | `patch_layers` | 16 | Deep semantic processing, matches DiT-XL |
 | `pixel_layers` | 4 | Lightweight pixel refinement (1:4 ratio) |
+| `text_processor_layers` | 2 | Pre-joint text processor (0 disables) |
+| `image_processor_layers` | 2 | Pre-joint image processor (0 disables) |
 | `num_heads` | 16 | GQA with 16 Q heads |
 | `num_kv_heads` | 4 | 4:1 GQA ratio, 75% KV cache reduction |
+
+**Pre-joint Processors**:
+- `text_processor_mlp_ratio` / `image_processor_mlp_ratio`: `None` uses `mlp_ratio`.
+- `text_processor_use_qk_norm` / `image_processor_use_qk_norm`: default `True`.
+- `image_processor_use_timestep`: default `True`, set `False` to disable t conditioning.
+- Processors are modality-internal. TextProcessor does **not** inject RoPE/timestep. ImageProcessor does **not** inject RoPE but **does** inject timestep via TokenAdaLN (joint blocks still inject RoPE).
 
 ### 1.3 GQA 4:1 Ratio Justification
 
@@ -69,10 +77,36 @@ SwiGLU:     FFN(x) = (SiLU(xW_gate) ⊙ xW_up)W_down
 |-----------|---------|-----------|
 | `time_p_mean` | 0.0 | SD3/PixelHDM convention |
 | `time_p_std` | 1.0 | SD3/PixelHDM convention |
-| `time_eps` | 0.05 | Avoid numerical instability at t→0 or t→1 |
+| `time_eps` | 0.0001 | Avoid numerical instability at t->0 or t->1 |
 
 **Logit-Normal Sampling**:
 $$t = t_{eps} + (1 - 2 \cdot t_{eps}) \cdot \sigma(p_{mean} + p_{std} \cdot u), \quad u \sim \mathcal{N}(0, 1)$$
+
+### 1.5.1 Dynamic Timestep Shift (DTS)
+
+依解析度動態調整時間步分佈，訓練與推理一致：
+
+**核心定義**:
+- `sigma = 1 - t`
+- DTS 僅作用在 `sigma`，再回寫 `t' = 1 - sigma'`
+
+**exponential 模式** (預設 `fixed_shift=3.0`):
+```
+mu = log(fixed_shift)   # fixed_shift=3.0 → mu≈1.099
+sigma' = exp(mu) / (exp(mu) + (1/sigma - 1))
+```
+> **注意**: `fixed_shift=1.0` 會使 mu=0，DTS 退化為恒等映射 (no-op)。配置驗證器會對此發出警告。
+
+**linear 模式**:
+```
+mu = linear(num_tokens)  # clamp 可選
+sigma' = mu / (mu + (1/sigma - 1))
+```
+
+**num_tokens 來源**:
+- 優先使用「實際 token 長度」
+- 若無，使用 `(H // patch_size) * (W // patch_size)` 估算
+- 若解析度不能整除 `patch_size`，應跳過 DTS 並記錄警告
 
 ### 1.6 REPA Configuration
 
@@ -99,7 +133,7 @@ $$t = t_{eps} + (1 - 2 \cdot t_{eps}) \cdot \sigma(p_{mean} + p_{std} \cdot u), 
 | `out_channels` | 3 | RGB output (velocity prediction) |
 | `max_resolution` | 1024 | Maximum supported resolution |
 | `time_convention` | "pixelhdm" | t=0 noise, t=1 clean (opposite to standard) |
-| `prediction_type` | "x" | Predict clean image directly |
+  | `prediction_type` | "v" | V-Prediction (velocity: v = x - noise) |
 
 ### 1.9 Regularization Configuration
 
@@ -107,7 +141,7 @@ $$t = t_{eps} + (1 - 2 \cdot t_{eps}) \cdot \sigma(p_{mean} + p_{std} \cdot u), 
 |-----------|---------|-----------|
 | `dropout` | 0.0 | No dropout (diffusion uses noise as regularization) |
 | `attention_dropout` | 0.0 | No attention dropout |
-| `cfg_dropout` | 0.1 | 10% unconditional training for CFG |
+  | `cfg_dropout` | 0.0 | Default off (enable CFG dropout if > 0) |
 
 ### 1.10 Optimization Flags
 
@@ -130,7 +164,7 @@ $$t = t_{eps} + (1 - 2 \cdot t_{eps}) \cdot \sigma(p_{mean} + p_{std} \cdot u), 
 |-----------|---------|-----------|
 | `gate_type` | "headwise" | Per-head gating (16K params vs 1M for elementwise) |
 | `gate_activation` | "sigmoid" | Bounded [0,1] output |
-| `gate_bias` | False | Zero-init weights → initial gate = 0.5 |
+| `gate_bias` | False | Zero-init weights -> initial gate = 0.5 |
 
 ### 1.13 AdaLN Configuration
 
@@ -144,8 +178,12 @@ $$t = t_{eps} + (1 - 2 \cdot t_{eps}) \cdot \sigma(p_{mean} + p_{std} \cdot u), 
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
 | `mrope_theta` | 10000.0 | LLaMA/Qwen standard frequency base |
-| `mrope_text_max_len` | 512 | Match text_max_length |
-| `mrope_img_max_len` | 65536 | Support up to 256×256 patches |
+  | `mrope_text_max_len` | 511 | Match text_max_length (511 to avoid axis0 overflow) |
+  | `mrope_img_max_len` | 65536 | Legacy fallback max token count |
+  | `mrope_img_max_height` | 128 | Max patches in height (explicit, no sqrt) |
+  | `mrope_img_max_width` | 128 | Max patches in width (explicit, no sqrt) |
+  | `pixel_rope_type` | "rope2d" | Pixel path image-only RoPE type |
+  | `pixel_rope_max_size` | None | Pixel path RoPE2D max_size (None=沿用 mrope max_h/w) |
 
 ### 1.15 Embedding Configuration
 
@@ -169,67 +207,50 @@ $$t = t_{eps} + (1 - 2 \cdot t_{eps}) \cdot \sigma(p_{mean} + p_{std} \cdot u), 
 
 ### 2.1 Dual-Path Design
 
-```
-Input: Noised Image x_t (B, H, W, 3)
-        │
-        ├────────────────────────────────────────┐
-        │                                        │
-        ▼                                        ▼
-┌─────────────────┐                    ┌─────────────────┐
-│ 16×16 Patchify  │                    │  1×1 Patchify   │
-│ (PatchEmbedding)│                    │ (PixelEmbedding)│
-└────────┬────────┘                    └────────┬────────┘
-         │                                      │
-         ▼                                      │
-┌─────────────────┐                             │
-│   DiT Blocks    │                             │
-│  (16 layers)    │─── REPA features ──►        │
-└────────┬────────┘                             │
-         │                                      │
-         ▼                                      │
-┌─────────────────┐                             │
-│    s_cond =     │                             │
-│ semantic + t +  │                             │
-│ pooled_text     │                             │
-└────────┬────────┘                             │
-         │     ┌────────────────────────────────┘
-         │     │
-         ▼     ▼
-    ┌─────────────────┐
-    │   PiT Blocks    │
-    │  (4 layers)     │
-    │ + TokenCompact  │
-    └────────┬────────┘
-             │
-             ▼
-        Output: v (velocity)
-```
+  ```
+  Input: Noised Image x_t (B, H, W, 3)
+
+  Prompt -> TextEncoder -> TextProjector -> TextProcessor (2 layers, no RoPE/t)
+
+  Image  -> PatchEmbedding -> ImageProcessor (2 layers, no RoPE, with t)
+
+  text_proc + image_proc -> Joint Patch DiT Blocks (16 layers)
+                             +- TokenAdaLN uses t_embed (TimeEmbedding)
+
+  s_cond = semantic_tokens + t_embed
+
+  Image -> PixelEmbedding -> PiT Blocks (4 layers) + TokenCompaction -> Output v
+  ```
+
+  **Pre-joint Processors**:
+  - TextProcessor / ImageProcessor operate within each modality before joint attention.
+  - TextProcessor does **not** inject RoPE/timestep.
+  - ImageProcessor does **not** inject RoPE, but **does** inject timestep via TokenAdaLN.
 
 ### 2.2 s_cond Conditioning Mechanism
 
-The condition signal `s_cond` fuses three information sources:
+  The condition signal `s_cond` fuses two information sources:
 
 ```python
-s_cond = semantic_tokens + t_embed.unsqueeze(1) + pooled_text_embed.unsqueeze(1)
+  s_cond = semantic_tokens + t_embed.unsqueeze(1)
 ```
 
 | Component | Shape | Source | Purpose |
 |-----------|-------|--------|---------|
 | `semantic_tokens` | (B, L, D) | Patch DiT output | Spatial semantic info |
 | `t_embed` | (B, 1, D) | TimeEmbedding | Timestep conditioning |
-| `pooled_text_embed` | (B, 1, D) | Text encoder | Global text semantics |
 
 ### 2.3 Sandwich Norm Design
 
 ```
-x ────────────────────────────────────────► (+) ─► output
-    │                                         ▲
-    │                                         │ × alpha
-    ▼                                         │
-┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐
-│Pre-Norm │→γ*│ +β      │→│   Op    │→│Post-Norm│
-│(RMSNorm)│   │(AdaLN)  │  │(Attn/FF)│  │(RMSNorm)│
-└─────────┘   └─────────┘   └─────────┘   └─────────┘
+x ----------------------------------------> (+) -> output
+    |                                         ^
+    |                                         | * alpha
+    v                                         |
++---------+   +-----------+   +---------+   +---------+
+|Pre-Norm |->| AdaLN     |->|   Op    |->|Post-Norm|
+|(RMSNorm)|  |(gamma,beta)|  |(Attn/FF)|  |(RMSNorm)|
++---------+   +-----------+   +---------+   +---------+
 ```
 
 **Why Sandwich Norm**: Maximum training stability with smooth gradient flow.
@@ -254,11 +275,11 @@ class PixelHDMForT2I(nn.Module):
 
 **Forward Flow**:
 ```
-prompt → text_encoder → (text_embed, pooled_embed)
-                              ↓
-x_t, t ─────────────────► pixelhdm ────► v_pred
-                              ↓
-x_clean → dino_encoder → dino_features (for REPA loss)
+  prompt -> text_encoder -> (text_embed, text_mask)
+                              v
+x_t, t -----------------> pixelhdm ----> v_pred
+                              v
+x_clean -> dino_encoder -> dino_features (for REPA loss)
 ```
 
 **Component Initialization**:
@@ -275,7 +296,7 @@ x_clean → dino_encoder → dino_features (for REPA loss)
 **KV Head Expansion**:
 ```python
 def repeat_kv(k, v, n_rep=4):
-    # (B, 4, L, 64) → (B, 16, L, 64)
+    # (B, 4, L, 64) -> (B, 16, L, 64)
     k = k.unsqueeze(2).expand(B, 4, 4, L, 64)
     k = k.reshape(B, 16, L, 64)
     return k, v
@@ -290,26 +311,26 @@ $$\mathbf{Y}' = \mathbf{Y} \odot \sigma(\mathbf{X}\mathbf{W}_g)$$
 | `headwise` (default) | (B, 16, L, 1) | 16K |
 | `elementwise` | (B, 16, L, 64) | 1M |
 
-**Initialization**: Zero weights → initial gate = 0.5 → 50% passthrough
+**Initialization**: Zero weights -> initial gate = 0.5 -> 50% passthrough
 
 ### 3.3 Token Compaction
 
-**Complexity Reduction**: O(L² × p⁴) → O(L²)
+**Complexity Reduction**: O(L² × p⁴) -> O(L²)
 
 ```
 Input: (B, L, 256, 16)
-   ↓ Compress: Linear(4096 → 1024)
+   v Compress: Linear(4096 -> 1024)
 (B, L, 1024)
-   ↓ RMSNorm
-   ↓ GQA Attention (no internal residual)
-   ↓ RMSNorm
-   ↓ Expand: Linear(1024 → 4096), gain=0.1
+   v RMSNorm
+   v GQA Attention (no internal residual)
+   v RMSNorm
+   v Expand: Linear(1024 -> 4096), gain=0.1
 (B, L, 256, 16)
 Output: (B, L, 256, 16)
 ```
 
 **Architecture Design** (per architecture diagram):
-- **No internal MHSA residual**: `Linear Compress → MHSA → Linear Expand` is a straight-line flow
+- **No internal MHSA residual**: `Linear Compress -> MHSA -> Linear Expand` is a straight-line flow
 - **Block-level residual only**: Handled by `PixelTransformerBlock` via alpha gating: `x + α₁ * compaction(x)`
 - This matches the architecture diagram where ⊕ symbols only appear at block-level
 
@@ -389,7 +410,12 @@ $$L_v = \mathbb{E}_{x, \varepsilon, t}\left[\|v_{pred} - (x - \varepsilon)\|^2\r
 
 ### 4.3 Frequency Loss
 
-$$L_{freq} = \frac{1}{N} \sum_{i,j} W_{i,j} \cdot (V^{pred}_{DCT} - V^{target}_{DCT})^2$$
+$$L_{freq} = \frac{1}{N} \sum_{i,j} W_{i,j} \cdot (X^{pred}_{DCT} - X^{clean}_{DCT})^2$$
+
+**在 image 空間計算** (v1.5.0 起):
+- `x_pred = v_pred + noise` (從 velocity 還原為 image)
+- `x_clean` 為目標乾淨圖像
+- 不再使用 velocity 空間 (`v_pred`, `v_target`)
 
 **Components**:
 - DCT-II transform on 8×8 blocks
@@ -431,9 +457,9 @@ lr = cycle_min + (cycle_peak - cycle_min) × 0.5 × (1 + cos(π × progress))
 
 **Default Schedule** (16 epochs, restart_epochs=1):
 ```
-Epoch 0:  1.0e-4 → 5.0e-5
-Epoch 1:  9.0e-5 → 4.5e-5  (×0.9)
-Epoch 15: 2.1e-5 → 1.0e-5
+Epoch 0:  1.0e-4 -> 5.0e-5
+Epoch 1:  9.0e-5 -> 4.5e-5  (×0.9)
+Epoch 15: 2.1e-5 -> 1.0e-5
 ```
 
 ### 5.3 EMA
@@ -479,6 +505,15 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 optimizer.step()  # Only after accumulation_steps forward passes
 ```
 
+**Step Semantics (Unified in v1.5.1)**:
+- In epoch mode, one epoch is always `len(dataloader)` optimizer steps.
+- `gradient_accumulation_steps` increases compute per step and effective batch size, but does not reduce epoch step count.
+- Epoch boundary events are step-driven (`step % len(dataloader) == 0`), not physical `StopIteration`.
+- On resume, runtime aligns epoch by `epoch = step // len(dataloader)` (with warning when saved `step/epoch` mismatch).
+- If `len(dataloader)` is unavailable:
+  - epoch mode is fail-fast;
+  - steps mode is allowed only when epoch-based save/log are disabled.
+
 ### 5.7 ZClip Gradient Clipping
 
 **Adaptive Threshold Mechanism**:
@@ -496,7 +531,7 @@ threshold = clip_factor * grad_norm_ema  # Default: clip_factor=2.5
 | `threshold` | 2.5 | Clip at 2.5× EMA norm |
 | `ema_decay` | 0.99 | Smooth norm tracking |
 
-**Advantage over Fixed Clipping**: Adapts to different training phases (high initial gradients → low gradients).
+**Advantage over Fixed Clipping**: Adapts to different training phases (high initial gradients -> low gradients).
 
 ### 5.8 Mixed Precision Training
 
@@ -527,7 +562,7 @@ optimizer.step()
 
 **Training**:
 ```python
-# With probability cfg_dropout (10%), use unconditional embedding
+  # With probability cfg_dropout (default 0.0), use unconditional embedding
 if random.random() < cfg_dropout:
     text_embed = null_text_embed  # Zero or learned null embedding
 ```
@@ -539,7 +574,7 @@ v_uncond = model(x_t, t, null_embed)  # Unconditional prediction
 v_cfg = v_uncond + scale * (v_cond - v_uncond)  # Guided output
 ```
 
-**cfg_dropout=0.1 Rationale**: 10% unconditional rate provides enough signal for CFG without hurting conditional quality.
+  **cfg_dropout Default**: 0.0 (disabled). Set > 0 (e.g., 0.1) to enable CFG dropout training.
 
 ### 5.10 CPU Memory Checkpoint
 
@@ -551,6 +586,62 @@ checkpoint_fn = checkpoint_sequential_cpu if cpu_offload else checkpoint
 
 **Trade-off**: 10-20× slower but enables training models that don't fit in GPU.
 
+### 5.11 Checkpoint Save Policy
+
+**Periodic Trigger Rules**:
+- Save when `step % save_interval == 0`.
+- Also save when epoch boundary satisfies `epoch % save_every_epochs == 0`.
+- If both conditions hit the same optimizer step, save only once (deduplicated).
+- Periodic filename epoch index is derived from step budget, not `batch_idx`:
+  - `epoch_for_name(step) = max(1, (step - 1) // steps_per_epoch + 1)`
+
+**Filename Convention**:
+- Periodic checkpoint: `checkpoint_epoch{epoch}_step{step}.pt`
+- Final completion checkpoint: `checkpoint_completed.pt`
+
+**Project Default Config** (`configs/train_config.yaml`):
+```yaml
+output:
+  save_interval: 2500
+  save_every_epochs: 1
+```
+
+### 5.12 Single-Thread Thread Prefetch (Default 2x)
+
+**Scope**: `src.training.train` entrypoint only.
+
+**Goal**: smooth dataloading/compute cadence under `num_workers=0` without changing trainer step/epoch semantics.
+
+**CLI contract**:
+- `--enable-thread-prefetch` (default behavior)
+- `--disable-thread-prefetch`
+- `--prefetch-buffer-multiplier` (default `2`)
+- `--prefetch-buffer-items` (absolute override)
+
+**Resolution rule**:
+```python
+if (not cli_enabled) or (num_workers > 0):
+    enabled = False
+    resolved_items = 0
+else:
+    if buffer_items is not None:
+        resolved_items = max(1, int(buffer_items))
+    else:
+        resolved_items = max(1, int(gradient_accumulation_steps)) * max(1, int(buffer_multiplier))
+```
+
+**Runtime behavior**:
+- Wrap base `DataLoader` with `ThreadPrefetchDataLoader` only when `enabled=True`.
+- Background producer pushes batches to a bounded queue.
+- Consumer iterates from queue inside training loop.
+- Producer exceptions are re-raised on consumer side.
+- `close()` is invoked on shutdown to avoid thread leakage.
+
+**Non-goals**:
+- No change to checkpoint naming/save trigger semantics.
+- No change to optimizer-step / epoch boundary semantics.
+- No `DataConfig` schema extension required for this feature.
+
 ---
 
 ## 6. Inference System
@@ -560,9 +651,11 @@ checkpoint_fn = checkpoint_sequential_cpu if cpu_offload else checkpoint
 | Sampler | NFE (50 steps) | Order | Use Case |
 |---------|----------------|-------|----------|
 | Euler | 50 | 1st | Fast preview |
-| **Heun** | 99 | 2nd | **Default** |
+| **Heun** | 99 (2N-1) | 2nd | **Default** (末步自動 Euler) |
 | DPM++ | 50 | Multi-step | Low-step quality |
 | DPM++ 2S | 50 | Multi-step | Second-order DPM solver |
+
+**Heun last-step optimization**: 最後一步跳過 corrector (退化為 Euler)，NFE = 2N - 1 而非 2N。所有 sampler 均支援 DTS 參數傳遞。
 
 **DPM++ 2S (Second-Order Ancestral)**:
 ```python
@@ -598,7 +691,7 @@ $$t_i = t_{eps} + \frac{i}{N} \times (1 - 2 \times t_{eps}), \quad i \in \{0, ..
 **Why [t_eps, 1-t_eps] instead of [0, 1]**:
 - t=0: λ(0) = log(0/1) = -∞
 - t=1: λ(1) = log(1/0) = +∞
-- Numerical stability with t_eps=0.05
+- Numerical stability with t_eps=0.0001
 
 ### 6.4 CFG Scheduling Strategies
 
@@ -654,10 +747,10 @@ output = pipeline(
 
 ### 7.1 PatchEmbedding (16×16)
 
-**Bottleneck Design**: 768 → 256 → 1024
+**Bottleneck Design**: 768 -> 256 -> 1024
 
 ```
-unfold(16×16) → Linear(768→256) → SiLU → Linear(256→1024)
+unfold(16×16) -> Linear(768->256) -> SiLU -> Linear(256->1024)
 ```
 
 **Parameter Savings**: 42% fewer params than direct projection
@@ -667,7 +760,7 @@ unfold(16×16) → Linear(768→256) → SiLU → Linear(256→1024)
 **Purpose**: Preserve high-frequency details
 
 ```
-Linear(3→16) per-pixel → reshape to (B, L, 256, 16)
+Linear(3->16) per-pixel -> reshape to (B, L, 256, 16)
 ```
 
 ### 7.3 TimeEmbedding
@@ -675,7 +768,7 @@ Linear(3→16) per-pixel → reshape to (B, L, 256, 16)
 **Sinusoidal + MLP**:
 $$embed(t) = MLP([\sin(1000t \cdot f_0), ..., \cos(1000t \cdot f_{127})])$$
 
-**MLP Structure**: Linear(256→1024) → SiLU → Linear(1024→1024)
+**MLP Structure**: Linear(256->1024) -> SiLU -> Linear(1024->1024)
 
 ### 7.4 Text Encoder
 
@@ -691,8 +784,8 @@ $$embed(t) = MLP([\sin(1000t \cdot f_0), ..., \cos(1000t \cdot f_{127})])$$
 
 ```
 Input: (B, L, 256, 16)
-    ↓ Reshape: (B, L×256, 16) = (B, H×W, 16)
-    ↓ Linear(16 → 3): Xavier uniform initialization
+    v Reshape: (B, L×256, 16) = (B, H×W, 16)
+    v Linear(16 -> 3): Xavier uniform initialization
 Output: (B, H, W, 3)
 ```
 
@@ -708,7 +801,7 @@ nn.init.zeros_(self.proj.bias)
 
 **Why Xavier**:
 - Output std ≈ 1.30 (matches v_target std ≈ 1.15)
-- Small std=0.02 → output std = 0.08 (only 7% coverage)
+- Small std=0.02 -> output std = 0.08 (only 7% coverage)
 
 ### 7.6 LearnedPositionalEmbedding
 
@@ -756,7 +849,7 @@ gamma2=init_gain, beta2=0, alpha2=1
 **重要 (2026-01-19)**: `cond_norm` (RMSNorm) 已從 PixelwiseAdaLN 中**移除**。
 它原本是為了「恢復信號強度」而添加，但實際上破壞了 99.7% 的文字條件信號。
 - 問題: `cond_expand` 將不同的 s_cond 投影到幾乎平行的向量 (cosine_sim=0.998)
-- RMSNorm 只保留方向 → 不同文字輸入在歸一化後變得相同
+- RMSNorm 只保留方向 -> 不同文字輸入在歸一化後變得相同
 - 信號保留率: 有 cond_norm=0.3%, 無 cond_norm=54%
 
 ### 8.3 _reinit_adaln() Necessity
@@ -817,8 +910,8 @@ def get_dino_features(image_hash):
 ```
 
 **Why DINOv3 Only** (No DINOv2 Fallback):
-- DINOv3: patch_size=16 → perfect match with PixelHDM
-- DINOv2: patch_size=14 → requires interpolation, quality loss
+- DINOv3: patch_size=16 -> perfect match with PixelHDM
+- DINOv2: patch_size=14 -> requires interpolation, quality loss
 
 ---
 
@@ -858,15 +951,20 @@ def get_dino_features(image_hash):
 
 ---
 
-## Version History
+## 版本歷史
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.3.0 | 2026-01-20 | **CRITICAL**: 移除 TokenCompaction 內部 MHSA 殘差 (符合架構圖設計) |
-| 1.2.0 | 2026-01-19 | **CRITICAL**: 從 PixelwiseAdaLN 移除 cond_norm (它破壞了 99.7% 文字信號) |
-| 1.1.0 | 2026-01-08 | Added missing config params, QK norm, Flash Attention, optimizer, ZClip, CFG scheduling |
-| 1.0.0 | 2026-01-08 | Initial version |
+| 版本 | 日期 | 變更 |
+|------|------|------|
+| 1.5.2 | 2026-02-11 | 新增 training entrypoint 的 single-thread `Thread Prefetch` 規格（預設 2x、`CLI` disable/override、`num_workers` 感知跳過策略、shutdown/exception handling 契約） |
+| 1.5.1 | 2026-02-09 | 統一梯度積累下的 epoch-step 語義（每輪步數不會減半）；整合 checkpoint 週期保存策略（step/epoch 觸發且同一步去重）；週期檔名統一為 `checkpoint_epoch{epoch}_step{step}.pt` |
+| 1.5.0 | 2026-02-07 | **審計修復**: DPM++ DTS 相容性; t_eps 統一為 0.0001; fixed_shift 1.0→3.0; freq_loss→image 空間; Heun 末步 Euler; SamplerConfig DTS 預設為 True; repa_loss 安全存取 |
+| 1.4.3 | 2026-02-05 | 新增 Dynamic Timestep Shift (DTS) 配置與行為 |
+| 1.4.2 | 2026-02-04 | 新增圖像/文字處理器 |
+| 1.4.1 | 2026-01-22 | **回滾修復**: 恢復 DINOv3 ImageNet 正規化; DataLoader augmentation 配置; mRoPE per-sample text_len + 顯式 max_h/w |
+| 1.4.0 | 2026-01-21 | **關鍵修復**: expand_gain 0.1->0.5; DINOv3 ImageNet 正規化; DataLoader 配置修復; mRoPE per-sample text_len |
+| 1.3.0 | 2026-01-20 | **關鍵修復**: 移除 TokenCompaction 內部 MHSA 殘差 (符合架構圖設計) |
+| 1.2.0 | 2026-01-19 | **關鍵修復**: 從 PixelwiseAdaLN 移除 cond_norm (它破壞了 99.7% 文字信號) |
+| 1.1.0 | 2026-01-08 | 補齊缺漏配置參數、QK norm、Flash Attention、optimizer、ZClip、CFG scheduling |
+| 1.0.0 | 2026-01-08 | 初始版本 |
 
 ---
-
-*最後更新: 2026-01-20*
