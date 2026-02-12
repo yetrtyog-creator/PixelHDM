@@ -612,3 +612,10 @@ Testing is currently underway.
 (Not updated)
 
 We are experimenting with a design that processes each modality independently within its own processor to stabilize unimodal representation, while maintaining a single-stream architecture instead of a dual-stream cross-attention design. This approach eliminates the significant spatial disparity between the two modalities, thereby effectively enhancing cross-modal correlation and preventing the backbone core from being overwhelmed by complex impacts. Additionally, modifying the initialization results in slower but more stable convergence, alongside the resolution of numerous fine-grained design issues.
+
+
+2026/2/12
+
+更新到github上
+
+Updated to GitHub
